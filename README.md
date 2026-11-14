@@ -54,7 +54,7 @@ against the tree before patching.
 
 - **A - Build architecture.** The workflow no longer embeds the whole
   repository inside heredocs: it shrank from a 10078-line
-  self-regenerating YAML to a 314-line build-only script. The tracked
+  self-regenerating YAML to a build-only script. The tracked
   files are now the source of truth, reviews and hand edits work
   normally, and the heredoc/tree drift class of bugs is gone by
   construction. The workflow's only source patch (the
@@ -62,6 +62,21 @@ against the tree before patching.
   out to be dead code - declared in overlay.cpp, never called, since
   the r30 H6 fix parks ImGui without GL calls - so the build uses a
   stock v1.93.0-docking clone and the dead declaration was removed.
+
+- **A3 - SDK path conflict on the runner (first CI run of the
+  restructured workflow).** GitHub's ubuntu runners preset
+  `ANDROID_SDK_ROOT=/usr/local/lib/android/sdk` while the workflow
+  installs its own SDK under the workspace and set only
+  `ANDROID_HOME`; Gradle's Android plugin then aborted with
+  "Several environment variables ... contain different paths to the
+  SDK" (task `:app:lintVitalReportRelease`). The old heredoc
+  workflow happened to dodge this by writing
+  `sample-app/local.properties` (`sdk.dir=...`) in its gradle
+  generation step, and the restructure dropped that line. Fixed
+  both ways: `ANDROID_SDK_ROOT` now mirrors `ANDROID_HOME` in the
+  job env, and the `local.properties` write is restored before the
+  gradle builds (the nolib build copies the whole sample-app dir, so
+  it inherits the file).
 
 - **L1 (menu.cpp)** five render-thread writes to `s_trackers` /
   `s_hooks` (`Track this method`, `Add Hook`, `Remove hook`, the two
