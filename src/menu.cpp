@@ -1,9 +1,13 @@
-/* Dex-tool menu (r35): density-correct phone UI - every size in
-   dp via overlay_dp(), font = 14dp body x preset multiplier,
-   apply_theme() owns colours AND metrics (ScaleAllSizes from a
-   pristine base), semantic palette, ImGui Tables for field
-   lists, dp-sized chrome, touch release clears hover, 1.93
-   single-click API on the class rows. r34: touch io settings,
+/* Dex-tool menu (r37): stock ImGui design - the r35 semantic palette,
+   rounded chrome and Material FAB are retired; colours come verbatim
+   from StyleColorsDark/Light/Classic, the main window and the toggle
+   use standard title bars (collapse button), widgets are stock. What
+   is kept is the phone plumbing, not the look: dp sizes via
+   overlay_dp(), font = 14dp body x preset multiplier, ScaleAllSizes
+   from the pristine base for density correctness, TouchExtraPadding
+   hit-box widening (invisible), ImGui Tables for field lists, touch
+   release clears hover, 1.93 single-click API on the class rows.
+   r36: locks, atomics, buffer caps. r34: touch io settings,
    docking-branch inspectors. */
 #include "menu.h"
 #ifdef IMGUI_HAS_DOCK
@@ -812,75 +816,26 @@ static void copy_text(const std::string& what, const std::string& text) {
              what.c_str(), t.c_str());
     s_clip_ms = conf_now_ms();
 }
-/* r35 C: semantic palette - accent for interactive states, the
-   pink stays as the secondary accent (Options button, plots) */
-static ImVec4 dt_accent2() {
-    return ImVec4(0.98f, 0.44f, 0.66f, 1.00f);
-}
-static void dt_apply_palette(int theme) {
-    ImGuiStyle& st = ImGui::GetStyle();
-    const ImVec4 accent = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-    const bool  dark = (theme != 1);
-    const ImVec4 bg   = dark ? ImVec4(0.06f, 0.07f, 0.09f, 1.0f)
-                             : ImVec4(0.94f, 0.95f, 0.97f, 1.0f);
-    const ImVec4 bg2  = dark ? ImVec4(0.10f, 0.11f, 0.13f, 1.0f)
-                             : ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
-    const ImVec4 bg3  = dark ? ImVec4(0.13f, 0.15f, 0.18f, 1.0f)
-                             : ImVec4(0.86f, 0.88f, 0.91f, 1.0f);
-    const ImVec4 txt  = dark ? ImVec4(0.92f, 0.93f, 0.95f, 1.0f)
-                             : ImVec4(0.10f, 0.11f, 0.13f, 1.0f);
-    const ImVec4 txtd = dark ? ImVec4(0.50f, 0.52f, 0.56f, 1.0f)
-                             : ImVec4(0.40f, 0.42f, 0.46f, 1.0f);
-    const ImVec4 line = dark ? ImVec4(0.20f, 0.22f, 0.26f, 1.0f)
-                             : ImVec4(0.78f, 0.80f, 0.84f, 1.0f);
-
-    st.Colors[ImGuiCol_WindowBg]         = bg;
-    st.Colors[ImGuiCol_ChildBg]          = bg2;
-    st.Colors[ImGuiCol_PopupBg]          = bg2;
-    st.Colors[ImGuiCol_TitleBg]          = bg2;
-    st.Colors[ImGuiCol_TitleBgActive]    = bg3;
-    st.Colors[ImGuiCol_TitleBgCollapsed] = bg3;
-    st.Colors[ImGuiCol_FrameBg]          = bg3;
-    st.Colors[ImGuiCol_FrameBgHovered]   =
-        dark ? ImVec4(0.18f, 0.21f, 0.26f, 1.f)
-             : ImVec4(0.80f, 0.83f, 0.88f, 1.f);
-    st.Colors[ImGuiCol_FrameBgActive]    = accent;
-    st.Colors[ImGuiCol_Button]           = bg3;
-    st.Colors[ImGuiCol_ButtonHovered]    = accent;
-    st.Colors[ImGuiCol_ButtonActive]     = accent;
-    st.Colors[ImGuiCol_Header]           = bg3;
-    st.Colors[ImGuiCol_HeaderHovered]    = accent;
-    st.Colors[ImGuiCol_HeaderActive]     = accent;
-#if IMGUI_VERSION_NUM >= 19090
-    st.Colors[ImGuiCol_Tab]              = bg2;
-    st.Colors[ImGuiCol_TabHovered]       = bg3;
-    st.Colors[ImGuiCol_TabSelected]      = accent;
-    st.Colors[ImGuiCol_TabSelectedOverline] = accent;
-#endif
-    st.Colors[ImGuiCol_Text]             = txt;
-    st.Colors[ImGuiCol_TextDisabled]     = txtd;
-    st.Colors[ImGuiCol_Separator]        = line;
-    st.Colors[ImGuiCol_SeparatorHovered] = accent;
-    st.Colors[ImGuiCol_SeparatorActive]  = accent;
-    st.Colors[ImGuiCol_CheckMark]        = accent;
-    st.Colors[ImGuiCol_ResizeGrip]       = accent;
-    st.Colors[ImGuiCol_ResizeGripHovered]= accent;
-    st.Colors[ImGuiCol_ScrollbarBg]      = ImVec4(0, 0, 0, 0);
-    st.Colors[ImGuiCol_ScrollbarGrab]    = line;
-    st.Colors[ImGuiCol_ScrollbarGrabHovered] = accent;
-    st.Colors[ImGuiCol_ScrollbarGrabActive]  = accent;
-    st.Colors[ImGuiCol_NavHighlight]     = accent;
-    st.Colors[ImGuiCol_NavWindowingHighlight] = accent;
-    st.Colors[ImGuiCol_PlotLines]        = dt_accent2();
-}
-
+/* r37: the r35 semantic palette is retired - the menu uses the stock
+   ImGui colour sets verbatim (StyleColorsDark/Light/Classic). The only
+   override left is TouchExtraPadding, which is invisible: it widens the
+   finger hit box around widgets without changing how anything looks. */
 static ImGuiStyle s_style_base;       /* pristine metrics per theme */
 static bool       s_style_base_set = false;
+
+static void dt_apply_metrics(ImGuiStyle& st) {
+    float k = s_font_px_k();
+    st = s_style_base;               /* pristine stock metrics of the theme */
+    st.ScaleAllSizes(k);            /* dp correctness, not styling */
+    st.TouchExtraPadding = ImVec2(3.f * k, 3.f * k);
+}
 
 static void apply_theme() {
     ImGuiStyle& st = ImGui::GetStyle();
 
-    /* 1. colours - only when the theme changes (r30 M9) */
+    /* 1. colours - only when the theme changes (r30 M9). r37: the stock
+       ImGui palettes are used verbatim; no colour is overridden anywhere
+       in the app any more (the r35 semantic palette was removed). */
     static int applied = -1;
     if (applied != s_theme) {
         applied = s_theme;
@@ -889,7 +844,6 @@ static void apply_theme() {
             case 1: ImGui::StyleColorsLight();   break;
             case 2: ImGui::StyleColorsClassic(); break;
         }
-        dt_apply_palette(s_theme);
         s_style_base = st;                 /* capture pristine metrics */
         s_style_base_set = true;
     }
@@ -898,30 +852,12 @@ static void apply_theme() {
         s_style_base_set = true;
     }
 
-    /* 2. metrics - always in sync with the current font size.
-       ScaleAllSizes() is cumulative, so reset to the base first. */
-    float k = s_font_px_k();
-    st = s_style_base;
-    st.ScaleAllSizes(k);
-    st.WindowRounding    = 6.0f * k;
-    st.ChildRounding     = 4.0f * k;
-    st.FrameRounding     = 4.0f * k;
-    st.PopupRounding     = 4.0f * k;
-    st.GrabRounding      = 4.0f * k;
-    st.TabRounding       = 4.0f * k;
-    st.ScrollbarRounding = 4.0f * k;
-    st.WindowPadding     = ImVec2( 8.f * k,  8.f * k);
-    st.FramePadding      = ImVec2(10.f * k,  8.f * k);  /* touch-sized */
-    st.ItemSpacing       = ImVec2( 8.f * k,  6.f * k);
-    st.ItemInnerSpacing  = ImVec2( 6.f * k,  6.f * k);
-    st.CellPadding       = ImVec2( 6.f * k,  4.f * k);
-    st.IndentSpacing     = 20.0f * k;
-    st.ScrollbarSize     = 16.0f * k;
-    st.GrabMinSize       = 20.0f * k;
-    st.TouchExtraPadding = ImVec2( 3.f * k,  3.f * k);
-    st.WindowBorderSize  = 1.0f;
-    st.FrameBorderSize   = 0.0f;
-    st.ChildBorderSize   = 0.0f;
+    /* 2. metrics - r37: stock metrics of the active theme, uniformly
+       scaled by the dp-derived font ratio (density correctness, not
+       styling). ScaleAllSizes() is cumulative, so reset to the base
+       first. Only TouchExtraPadding differs from stock (bigger finger
+       hit boxes, zero visual difference). */
+    dt_apply_metrics(st);
 
     /* 3. 1.92+ font scaling - density is already baked into the px */
 #if IMGUI_VERSION_NUM >= 19200
@@ -3041,12 +2977,9 @@ static void explorer_body(ExplorerWin& e) {
     ImGui::SameLine();
     bool do_query = false;
     if (ImGui::Button("Filter")) do_query = true;
-    /* r35 C: the pink is now the palette's secondary accent */
-    ImGui::PushStyleColor(ImGuiCol_Button,        dt_accent2());
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, dt_accent2());
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive,  dt_accent2());
+    /* r37: the Options button is a plain stock button now - the r35
+       pink secondary accent is retired with the palette */
     if (ImGui::Button("Options")) ImGui::OpenPopup("explOpts");
-    ImGui::PopStyleColor(3);
     /* r34 G3: filter FIRST - the counter and the clipper both use
        the filtered list (clipping over the raw size drew a phantom
        scrollbar past the last row), and empty names never render */
@@ -3353,34 +3286,36 @@ static ImVec2 s_fab_pos(-1, -1);
 static bool    s_fab_drag = false;
 static bool    s_fab_moved = false;
 static ImVec2  s_fab_grab(0, 0), s_fab_orig(0, 0);
+/* r37: the toggle is a regular ImGui window now - stock title bar
+   with collapse/collapse-all, standard button, stock colors. The
+   r35 "FAB" chrome (circle rounding, Material colors, translucent
+   background, HIDE/MENU shouting) is gone; what stays is the touch
+   logic: dp-sized button, drag-to-move with the 8px tap threshold,
+   the r29 fast-tap handling and the r36 single-toggle latch. */
 static void draw_fab(ImVec2 ds) {
     if (!s_show_fab) return;
     if (s_fab_pos.x < 0)
-        s_fab_pos = ImVec2(ds.x - overlay_dp(72.f),
-                           ds.y - overlay_dp(96.f));
+        s_fab_pos = ImVec2(ds.x - overlay_dp(112.f),
+                           ds.y - overlay_dp(72.f));
     ImGuiIO& io = ImGui::GetIO();
     ImGui::SetNextWindowPos(s_fab_pos, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.55f);
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, overlay_dp(14.f));
-    ImGui::PushStyleColor(ImGuiCol_Button,
-        s_visible ? ImVec4(.25f, .55f, .25f, .85f)
-                  : ImVec4(.55f, .30f, .55f, .85f));
-    ImGui::Begin("##fab", nullptr,
-                 ImGuiWindowFlags_NoDecoration |
+    ImGui::SetNextWindowSize(ImVec2(overlay_dp(96.f),
+                                    ImGui::GetFrameHeight()
+                                    + ImGui::GetStyle().WindowPadding.y * 2.f),
+                             ImGuiCond_Always);
+    ImGui::Begin("Dex-tool toggle", nullptr,
+                 ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoSavedSettings |
                  ImGuiWindowFlags_AlwaysAutoResize |
                  ImGuiWindowFlags_NoFocusOnAppearing);
-    /* r29: a fast tap completes within one frame - handle the press
-       directly (the empty handler needed a second tap before) */
-    /* r35 G: dp-sized - Android's 48dp minimum touch target */
     bool fab_pressed = false;   /* r36: latched - Button may return true AND
                                    the release branch below may also fire in
                                    the same frame (release arrives with the
                                    click), which double-toggled the menu */
-    bool fab_press = ImGui::Button(s_visible ? "HIDE" : "MENU",
-                                   ImVec2(overlay_dp(56.f),
-                                          overlay_dp(48.f)));
+    bool fab_press = ImGui::Button(s_visible ? "Hide" : "Menu",
+                                   ImVec2(overlay_dp(80.f),
+                                          overlay_dp(32.f)));
     if (fab_press) fab_pressed = true;
     if (ImGui::IsItemActive()) {
         if (!s_fab_drag) {
@@ -3395,10 +3330,10 @@ static void draw_fab(ImVec2 ds) {
             s_fab_pos = ImVec2(s_fab_orig.x + d.x, s_fab_orig.y + d.y);
             if (s_fab_pos.x < 0)  s_fab_pos.x = 0;
             if (s_fab_pos.y < 0)  s_fab_pos.y = 0;
-            if (s_fab_pos.x > ds.x - overlay_dp(64.f))
-                s_fab_pos.x = ds.x - overlay_dp(64.f);
-            if (s_fab_pos.y > ds.y - overlay_dp(56.f))
-                s_fab_pos.y = ds.y - overlay_dp(56.f);
+            if (s_fab_pos.x > ds.x - overlay_dp(96.f))
+                s_fab_pos.x = ds.x - overlay_dp(96.f);
+            if (s_fab_pos.y > ds.y - overlay_dp(64.f))
+                s_fab_pos.y = ds.y - overlay_dp(64.f);
             ImGui::SetWindowPos(s_fab_pos);
         }
     } else if (s_fab_drag) {
@@ -3414,8 +3349,6 @@ static void draw_fab(ImVec2 ds) {
         s_conf_dirty = true;
     }
     ImGui::End();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 }
 static void draw_resize_handles() {
     /* r29: touch-friendly resize - drag the left/right/bottom edges
@@ -3700,7 +3633,7 @@ void menu_draw() {
         }
     }
     MULK();
-    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoCollapse |
+    ImGuiWindowFlags wflags =
                               /* r33 F9: the top bar must never
                                  scroll out of view */
                               ImGuiWindowFlags_NoScrollbar;
@@ -3727,27 +3660,10 @@ void menu_draw() {
     }
     ImGui::SetNextWindowBgAlpha(s_opacity);
     bool open = vis;
-    ImGui::Begin("Dex-tool (r35)", &open, wflags);
-    {
-        /* r33 F1: minimize button - sits in the title bar, left of
-           the X; the cursor is restored so the layout is untouched.
-           Edge resize already excludes the top edge (r29 handles:
-           left/right/bottom, the top edge moves the window). */
-        ImVec2 cp = ImGui::GetCursorPos();
-        ImVec2 wp2 = ImGui::GetWindowPos();
-        ImVec2 wsz2 = ImGui::GetWindowSize();
-        /* r36: dp-sized offsets - raw 56/3 px put the button 3x off
-           on a density-3 phone and overlapped the collapse arrow */
-        float mw = ImGui::CalcTextSize("v").x + ImGui::GetStyle().FramePadding.x * 2.f;
-        ImGui::SetCursorScreenPos(ImVec2(
-            wp2.x + wsz2.x - overlay_dp(20.f) - mw, wp2.y + overlay_dp(6.f)));
-        if (ImGui::SmallButton("v##minbtn")) {
-            s_visible.store(false);
-            s_conf_dirty = true;
-        }
-        ImGui::SetCursorPos(cp);
-        /* r34 G4: reserve the bottom strip when an inspector will
-           dock; the main-window children shrink by s_dock_h */
+    ImGui::Begin("Dex-tool (r37)", &open, wflags);
+    {   /* r37: the hand-drawn "v" minimize button is gone - a stock
+           ImGui title bar has a collapse button. What stays from the
+           old block is only the docking-strip reservation (r34 G4). */
         bool dock_wanted = false;
         for (auto& c : s_classes)
             if (!c.win_close && !c.no_dock && !c.fill) {
