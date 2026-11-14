@@ -15,6 +15,12 @@ jobs:
 
     env:
       ANDROID_HOME: "${{ github.workspace }}/android-sdk"
+      # r36 fix: GitHub runners preset ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+      # (the runner's own preinstalled SDK). With only ANDROID_HOME set, Gradle
+      # sees two different SDK paths and aborts with "Several environment
+      # variables and/or system properties contain different paths to the SDK".
+      # Aligning it with our manually-installed SDK removes the conflict.
+      ANDROID_SDK_ROOT: "${{ github.workspace }}/android-sdk"
       ANDROID_NDK_ROOT: "${{ github.workspace }}/android-sdk/ndk/25.2.9519653"
 
     steps:
@@ -270,6 +276,9 @@ jobs:
           mkdir -p sample-app/app/src/main/jniLibs/arm64-v8a \
                    sample-app/app/src/main/jniLibs/armeabi-v7a \
                    sample-app/app/src/main/assets
+          # r36 fix: same SDK as the env vars (the env alignment alone would
+          # do; this pins it for the gradle daemon that ignores env changes)
+          echo "sdk.dir=$ANDROID_HOME" > sample-app/local.properties
           cp out/lib/arm64-v8a/libtool.so \
              sample-app/app/src/main/jniLibs/arm64-v8a/libtool.so
           cp out/lib/armeabi-v7a/libtool.so \
