@@ -18,3 +18,5 @@ captures/
 *.jar
 deps/
 src/agent_bundle_embed.h
+sample-app/app/src/main/jniLibs/
+sample-app/app/src/main/assets/smali-fat.jar
