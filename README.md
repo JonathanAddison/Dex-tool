@@ -47,7 +47,43 @@ but surviving every prune.)
 Standalone runtime instrumentation for Android APKs.
 libtool.so for armeabi-v7a + arm64-v8a. No root. API 26+.
 
-## Changes in this version (r36) - review fixes
+## Changes in this version (r37) - stock ImGui design renewal
+
+The overlay menu was redesigned back to regular ImGui, per review
+feedback. No functional change to the plumbing - the look is stock.
+
+- **U1 - Palette.** The r35 "semantic palette" (custom accent /
+  background / text colours overriding the stock sets, the pink
+  secondary accent on the Options button and plots) is removed. The
+  theme combo now hands over to the stock
+  `ImGui::StyleColorsDark/Light/Classic` verbatim; no colour anywhere
+  in the app is overridden. Semantic status colours (red errors,
+  green REC/MON, yellow warnings) stay - they are content, not chrome.
+- **U2 - Metrics.** The custom rounded chrome (6/4px roundings, fat
+  touch-sized paddings, translucent windows) is gone; the style is the
+  pristine stock theme scaled by the dp-derived ratio. Two invisible
+  exceptions kept: `TouchExtraPadding` (wider finger hit boxes - no
+  visual change) and the window-title metrics that the scaling needs.
+- **U3 - Toggle button.** The Material "FAB" (circle rounding,
+  translucent green/purple, HIDE/MENU caps) is now a regular small
+  ImGui window with a stock title bar and a standard `Button("Hide"/
+  "Menu")`. The touch logic is unchanged: dp-sized target, drag-to-
+  move with the 8px tap threshold, the r29 fast-tap fix and the r36
+  single-toggle latch.
+- **U4 - Window chrome.** The hand-drawn "v" minimize button in the
+  title bar is removed; the main window uses the stock collapse
+  button (`NoCollapse` dropped from its flags). The custom edge-
+  resize strips stay: they are touch plumbing (the mouse-grip
+  resize handles are unusable with a finger), not styling.
+- **Device log follow-up (from the field report).** The r35 device
+  log shows the overlay coming up cleanly ("ImGui up OK", touch map
+  estimated, agent ready) and a GLThread SIGSEGV ~11 s later right as
+  recorder activity starts - the signature of the L1 race class
+  (unlocked writes to `s_trackers`/`s_hooks` colliding with the
+  render loop) and the L7 torn-flags class, both fixed in r36. The
+  r37 build carries those fixes; this report is why they matter.
+
+### r36 - review fixes (still in this version)
 
 Logic and UI fixes from the external review; every one verified
 against the tree before patching.
