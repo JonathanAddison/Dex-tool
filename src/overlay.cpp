@@ -30,13 +30,15 @@ static fn_swap        g_orig_swap        = nullptr;
 static fn_swap_dmg    g_orig_swap_dmg    = nullptr;
 static fn_destroy_ctx g_orig_destroy_ctx = nullptr;
 static fn_terminate   g_orig_terminate   = nullptr;
-IMGUI_IMPL_API void ImGui_ImplOpenGL3_ForgetDeviceObjects();
 static std::atomic<int> g_park_leaks{0};   /* r32 R5 */
 static void imgui_park_without_gl() {
     /* r30 H6: ForgetDeviceObjects issues glDelete* against whatever
        context is current - on a foreign context that destroys the
        HOST's GL objects. Park ImGui without any GL call; the next
-       Init on a fresh context recreates everything. */
+       Init on a fresh context recreates everything.
+       r36: the declaration-only ForgetDeviceObjects() prototype was
+       removed with the workflow's dead patch to upstream ImGui; the
+       build now uses a stock v1.93.0-docking clone. */
     ImGuiIO& io = ImGui::GetIO();
     io.BackendRendererName     = nullptr;
     io.BackendRendererUserData = nullptr;
