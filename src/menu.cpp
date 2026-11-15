@@ -1,14 +1,14 @@
-/* Dex-tool menu (r37): stock ImGui design - the r35 semantic palette,
-   rounded chrome and Material FAB are retired; colours come verbatim
-   from StyleColorsDark/Light/Classic, the main window and the toggle
-   use standard title bars (collapse button), widgets are stock. What
-   is kept is the phone plumbing, not the look: dp sizes via
-   overlay_dp(), font = 14dp body x preset multiplier, ScaleAllSizes
-   from the pristine base for density correctness, TouchExtraPadding
-   hit-box widening (invisible), ImGui Tables for field lists, touch
-   release clears hover, 1.93 single-click API on the class rows.
-   r36: locks, atomics, buffer caps. r34: touch io settings,
-   docking-branch inspectors. */
+/* Dex-tool menu (r38): the r26 window design is back - Classes /
+   Patches / Trackers / Hooks / Recorder / Monitor / Script / Settings
+   main tabs, floating Class Explorer and Inspector windows with the
+   pink Options button, Caller/Patcher/Tracer/Hooker method sub-tabs,
+   opened classes as tabs in the Classes secondary bar with the "+"
+   button opening a new Explorer window. The r37 stock-ImGui colour
+   policy stays (StyleColorsDark/Light/Classic verbatim) - the pink
+   Options button is the one r26 accent that returns, on r26 request.
+   Phone plumbing all kept: dp sizes via overlay_dp(), ScaleAllSizes
+   density scaling, TouchExtraPadding hit boxes, ImGui Tables, 1.93
+   single-click API, r36 locks/atomics/caps, r32 R5 GL parking. */
 #include "menu.h"
 #ifdef IMGUI_HAS_DOCK
 #include "imgui_internal.h"   /* r34 G4: DockBuilderDockWindow */
@@ -622,7 +622,7 @@ static ClassTab* open_inspector(const std::string& name, bool switch_tab) {
         out = &s_classes.back();
     }
     s_focus_win = win_title(*out);
-    if (switch_tab) s_next_tab = "Tools";   /* r28 */
+    if (switch_tab) s_next_tab = "Classes";   /* r38: r26 tab set */
     MULK();
     std::string a = "{\"class\":\"" + jesc(name) + "\"}";
     post_rpc("openClass", a);
@@ -898,7 +898,7 @@ static void ime_frame_prelude() {
         io.AddKeyEvent(ImGuiKey_Enter, enter_down);
     }
 }
-static float s_dock_h = 0.f;  /* r34 G4: bottom dock strip height */
+static float s_dock_h = 0.f;  /* r38: unused (kept for saved-config compat) */
 static bool ime_field_core(const char* label, const char* hint,
                            char* buf, size_t cap,
                            ImGuiInputTextFlags extra) {
@@ -1292,7 +1292,10 @@ void menu_init() {
         MULK();
     });
 }
+static void tab_dumper();
 static void tab_settings() {
+    /* r38: forward decl - tab_classes (far below, next to the other
+       window-level code) embeds the Dumper section */
     ImGuiIO& io = ImGui::GetIO();
     ImGui::Separator();
     ImGui::Text("Display");
@@ -1431,17 +1434,19 @@ static void tab_patches() {
     }
     MULK();
 }
-static void tab_tracer() {
+static void tab_trackers() {
+    /* r38: the r26 Trackers tab - tracker rows + the Quick Restore
+       popup; hooks moved to their own tab (the r26 split) */
     MLK();
-    int ntr = (int)s_trackers.size(), nhk = (int)s_hooks.size();
+    int ntr = (int)s_trackers.size();
     MULK();
-    ImGui::Text("Traced method count : %d", ntr + nhk);
-    if (ntr + nhk == 0) {
+    ImGui::Text("Traced method count : %d", ntr);
+    if (ntr == 0) {
         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 80, 80, 255));
         ImGui::Text("No traced method has been called yet");
         ImGui::PopStyleColor();
-        ImGui::TextDisabled("open a class in Tools, expand a method and "
-                            "use its Trace tab - or add one below");
+        ImGui::TextDisabled("open a class in Classes, expand a method and "
+                            "use its Tracer tab - or add one below");
     } else if (ImGui::Button("Quick Restore")) {
         ImGui::OpenPopup("QuickRestorePopup");
     }
@@ -1468,7 +1473,7 @@ static void tab_tracer() {
             } else { ImGui::PopID(); i++; continue; }
             ImGui::PopID();
         }
-        for (int i = 0; i < nhk; ) {
+        for (int i = 0; i < (int)s_hooks.size(); ) {
             MLK();
             std::string nm = s_hooks[i].cls + "." + s_hooks[i].method;
             MULK();
@@ -1482,7 +1487,6 @@ static void tab_tracer() {
                 MLK();
                 s_hooks.erase(s_hooks.begin() + i);
                 MULK();
-                nhk--;
             } else { ImGui::PopID(); i++; continue; }
             ImGui::PopID();
         }
@@ -1529,6 +1533,41 @@ static void tab_tracer() {
         }
         ImGui::PopID();
     }
+    MULK();
+    ImGui::EndChild();
+    mark_scroll_item(s_lst_scroll);
+    ImGui::Separator();
+    ImGui::TextDisabled("Tracker manual add:");
+    MLK();
+    ime_textfield("Class##tc",  s_tcls, sizeof(s_tcls));
+    ime_textfield("Method##tm", s_tmth, sizeof(s_tmth));
+    if (ImGui::Button("Track") && s_tcls[0] && s_tmth[0]) {
+        std::string a = "{\"class\":\"" + jesc(s_tcls)
+                      + "\",\"method\":\"" + jesc(s_tmth) + "\"}";
+        post_rpc("addTracker", a);
+        s_trackers.push_back({std::string(s_tcls) + "." +
+                              std::string(s_tmth), false, {}});
+        MULK();
+        s_tcls[0] = s_tmth[0] = 0;
+        MLK();
+    }
+    MULK();
+}
+
+static void tab_hooks() {
+    /* r38: the r26 Hooks tab - the hook rows (enable/open/mode) and
+       the Manual add editor (class/method/mode/code + source) */
+    MLK();
+    int nhk = (int)s_hooks.size();
+    MULK();
+    ImGui::Text("Hook count : %d", nhk);
+    if (nhk == 0) {
+        ImGui::TextDisabled("add one below, or expand a method in a class "
+                            "window and use its Hooker tab");
+    }
+    ImGui::Separator();
+    ImGui::BeginChild("hooklist", ImVec2(0, fit_h(.42f, 120)), false);
+    MLK();
     static const char* hmodes[] = {"Java(JS)", "Smali", "Nop (auto)"};
     for (int i = 0; i < (int)s_hooks.size(); i++) {
         ImGui::PushID(8500 + i);
@@ -1561,7 +1600,7 @@ static void tab_tracer() {
     MULK();
     ImGui::EndChild();
     mark_scroll_item(s_lst_scroll);
-    if (ImGui::CollapsingHeader("Manual add")) {
+    if (ImGui::CollapsingHeader("Manual add", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::PushItemWidth(-FLT_MIN);   /* r33 F9 */
         static const char* modes[] = {"Java(JS)", "Smali", "Nop (auto)"};
         if (s_hedit >= 0 && s_hedit < (int)s_hooks.size()) {
@@ -1623,19 +1662,6 @@ static void tab_tracer() {
             s_hooks.push_back({s_hcls, s_hmth, s_hmode, s_hcode, true, "..."});
             MULK();
             s_hcls[0] = s_hmth[0] = s_hcode[0] = 0;
-        }
-        ImGui::Separator();
-        ime_textfield("Class##tc",  s_tcls, sizeof(s_tcls));
-        ime_textfield("Method##tm", s_tmth, sizeof(s_tmth));
-        if (ImGui::Button("Track") && s_tcls[0] && s_tmth[0]) {
-            std::string a = "{\"class\":\"" + jesc(s_tcls)
-                          + "\",\"method\":\"" + jesc(s_tmth) + "\"}";
-            post_rpc("addTracker", a);
-            MLK();
-            s_trackers.push_back({std::string(s_tcls) + "." +
-                                  std::string(s_tmth), false, {}});
-            MULK();
-            s_tcls[0] = s_tmth[0] = 0;
         }
         ImGui::PopItemWidth();   /* r33 F9 */
     }
@@ -2412,7 +2438,9 @@ static void patcher_tab(ClassTab& c, const MethodSig& m) {
         }
     }
 }
-static void trace_tab(ClassTab& c, const MethodSig& m) {
+static void tracer_subtab(ClassTab& c, const MethodSig& m) {
+    /* r38: the r26 "Tracer" sub-tab - tracking + live event log;
+       the hook editor moved to the Hooker sub-tab (r26 split) */
     std::string tname = c.cname + "." + m.name;
     long hits = 0;
     auto hi = s_hits.find(tname);
@@ -2455,7 +2483,10 @@ static void trace_tab(ClassTab& c, const MethodSig& m) {
             s_trackers.erase(s_trackers.begin() + ti);
         }
     }
-    ImGui::Separator();
+}
+static void hooker_subtab(ClassTab& c, const MethodSig& m) {
+    /* r38: the r26 "Hooker" sub-tab - the Java/Smali/Nop hook
+       editor for this method (the r26 split from the tracer) */
     static const char* modes[] = {"Java(JS)", "Smali", "Nop (auto)"};
     ImGui::Combo("Mode##hx28", &c.hook_mode, modes, 3);
     ime_multiline("Code##hx28", c.hook_code, sizeof(c.hook_code),
@@ -2518,15 +2549,17 @@ static void trace_tab(ClassTab& c, const MethodSig& m) {
 static void method_body(ClassTab& c, const MethodSig& m) {
     ImGui::Indent();
     if (ImGui::BeginTabBar("mexp")) {
-        static const char* msubs[] = {"Call", "Patch", "Trace"};
+        static const char* msubs[] = {"Caller", "Patcher", "Tracer",
+                                      "Hooker"};
         char tlbl[40];
-        for (int t = 0; t < 3; t++) {
+        for (int t = 0; t < 4; t++) {
             snprintf(tlbl, sizeof(tlbl), "%s##mexp%d", msubs[t], t);
             if (ImGui::BeginTabItem(tlbl)) {
                 c.msub = t;
                 if      (t == 0) caller_tab(c, m);
                 else if (t == 1) patcher_tab(c, m);
-                else             trace_tab(c, m);
+                else if (t == 2) tracer_subtab(c, m);
+                else             hooker_subtab(c, m);
                 ImGui::EndTabItem();
             }
         }
@@ -2977,9 +3010,16 @@ static void explorer_body(ExplorerWin& e) {
     ImGui::SameLine();
     bool do_query = false;
     if (ImGui::Button("Filter")) do_query = true;
-    /* r37: the Options button is a plain stock button now - the r35
-       pink secondary accent is retired with the palette */
+    /* r38: the r26 pink Options button is back - the one r26 accent
+       that returns (owner request); it marks the search-options popup */
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImVec4(0.98f, 0.44f, 0.66f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                          ImVec4(1.00f, 0.55f, 0.75f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                          ImVec4(0.90f, 0.38f, 0.58f, 1.0f));
     if (ImGui::Button("Options")) ImGui::OpenPopup("explOpts");
+    ImGui::PopStyleColor(3);
     /* r34 G3: filter FIRST - the counter and the clipper both use
        the filtered list (clipping over the raw size drew a phantom
        scrollbar past the last row), and empty names never render */
@@ -3036,7 +3076,7 @@ static void explorer_body(ExplorerWin& e) {
     ImGui::Separator();
     /* r33 F5: dynamic client-side filter - rows shrink as you type,
        exactly like the family search box */
-    ImGui::BeginChild("explst", ImVec2(0, -s_dock_h), true);
+    ImGui::BeginChild("explst", ImVec2(0, 0), true);   /* r38: no dock strip */
     ImGuiListClipper clip;
     clip.Begin((int)rows.size());   /* r34 G3: filtered size */
     while (clip.Step()) {
@@ -3097,8 +3137,19 @@ static void explorer_body(ExplorerWin& e) {
 static void class_tab_body(ClassTab& c) {
     /* r33 F10: the class name is a root TreeNode, the categories
        are sub-nodes - the horizontal sub-tab bar is gone. Action
-       buttons live in the toolbar row, separated by Separator. */
+       buttons live in the toolbar row, separated by Separator.
+       r38: the r26 "Inspector" button is back - it opens the
+       instance picker for this class (the r26 Object Finder entry
+       point, here via the Instances popup). */
     MLK();
+    if (ImGui::SmallButton("Inspector##ct")) {
+        /* jump to the Instances section of this window's hierarchy */
+        c.sub = 0;
+        std::string a = "{\"class\":\"" + jesc(c.cname) + "\"}";
+        post_rpc("listInstances", a);
+        c.inst_wait = true;
+    }
+    ImGui::SameLine();
     if (ImGui::SmallButton(c.fill ? "Restore##ct" : "Fill##ct")) {
         c.fill = !c.fill;               /* r34 G4-5: fullscreen toggle */
         if (!c.fill) c.dock_init = false;   /* re-dock on restore */
@@ -3150,10 +3201,13 @@ static void class_tab_body(ClassTab& c) {
     }
     MULK();
 }
-static void tab_tools() {
-    /* r33 F6: no default class window and no automatic listing any
-       more - the "+" button opens a window (which lists on its
-       own), X closes it, and windows are independent of each other */
+static void tab_classes() {
+    /* r38: the r26 Classes tab - the secondary bar under the main
+       tabs shows the OPENED CLASSES as tabs (not the explorers);
+       the far-right "+" button opens a NEW floating Class Explorer
+       window (r26 spec). Explorers always float now - the r28
+       inner tabber is retired. Tapping a class tab raises that
+       class's window (r26), and object tabs stay in this bar too. */
     MLK();
     MULK();
     if (ImGui::Checkbox("Fullscreen", &s_fullscreen)) {
@@ -3170,87 +3224,35 @@ static void tab_tools() {
                            ImGuiTabBarFlags_AutoSelectNewTabs |
                            ImGuiTabBarFlags_FittingPolicyScroll |
                            ImGuiTabBarFlags_TabListPopupButton)) {
-        if (ImGui::TabItemButton("+",
-                                 ImGuiTabItemFlags_NoTooltip |
-                                 ImGuiTabItemFlags_Leading))
-            s_expl_req = true;
         if (s_expl_req) {
+            /* r38: the "+" press opens a floating Explorer window -
+               handled before the bar so Leading/Trailing order is free */
             s_expl_req = false;
             if (s_explorers.size() < 6) {
                 ExplorerWin e{};
                 e.id = ++s_expl_seq;
+                e.detached  = true;      /* r26: explorers float */
+                e.free_init = false;
                 s_explorers.push_back(e);
                 s_focus_expl = e.id;
             }
         }
-        for (int i = 0; i < (int)s_explorers.size(); ) {
-            ExplorerWin& e = s_explorers[i];
-            if (e.detached) { i++; continue; }   /* floats elsewhere */
+        /* the opened classes as tabs (r26 secondary bar) */
+        for (int i = 0; i < (int)s_classes.size(); ) {
+            ClassTab& c = s_classes[i];
+            if (c.win_close || c.no_dock) { i++; continue; }
             bool open = true;
-            char lbl[192];
-            /* r33 F6: no numbering - the id is a hidden suffix */
-            snprintf(lbl, sizeof(lbl), "%s##x%d",
-                     e.search[0] ? e.search : "Classes", e.id);
             ImGuiTabItemFlags fl = 0;
-            if (s_focus_expl == e.id) {
+            if (s_focus_win == win_title(c)) {
                 fl |= ImGuiTabItemFlags_SetSelected;
-                s_focus_expl = 0;
+                s_focus_win.clear();
             }
-            if (ImGui::BeginTabItem(lbl, &open, fl)) {
-                explorer_body(e);
-                {
-                    /* r33 F6: long-press the tab strip (0.6s, then
-                       drag >= 14px) to float this window out of the
-                       tab bar */
-                    ImGuiIO& tio = ImGui::GetIO();
-                    static float lp_t0 = 0;
-                    static bool  lp_on = false;
-                    static int   lp_id = 0;
-                    static ImVec2 lp_p0(0, 0);
-                    ImVec2 wpos = ImGui::GetWindowPos();
-                    float band = ImGui::GetFrameHeight() * 2.f;
-                    bool in_strip = tio.MousePos.y >= wpos.y &&
-                                    tio.MousePos.y <= wpos.y + band;
-                    if (in_strip && tio.MouseDown[0] &&
-                        (!lp_on || lp_id != e.id)) {
-                        lp_on = true;
-                        lp_id = e.id;
-                        lp_t0 = (float)ImGui::GetTime();
-                        lp_p0 = tio.MousePos;
-                    }
-                    if (!tio.MouseDown[0]) lp_on = false;
-                    if (lp_on && lp_id == e.id && in_strip &&
-                        ImGui::GetTime() - lp_t0 > 0.6f) {
-                        float dx = tio.MousePos.x - lp_p0.x;
-                        float dy = tio.MousePos.y - lp_p0.y;
-                        if (dx * dx + dy * dy > 196.f) {
-                            MLK();
-                            e.detached  = true;
-                            e.free_init = false;
-                            MULK();
-                            lp_on = false;
-                        }
-                    }
-                }
+            if (ImGui::BeginTabItem(win_title(c).c_str(), &open, fl)) {
+                class_tab_body(c);
                 ImGui::EndTabItem();
             }
-            if (!open) {
-                s_explorers.erase(s_explorers.begin() + i);
-                continue;   /* no i++ - the next tab shifted in */
-            }
+            if (!open) c.win_close = true;   /* released by class_windows */
             i++;
-        }
-        if (!s_dup_req.empty()) {
-            /* r33: "Open in new tab" now floats its own window */
-            ClassTab* nt2 = open_inspector(s_dup_req, false);
-            if (nt2) {
-                MLK();
-                nt2->no_dock   = true;   /* r34: floats, not docked */
-                nt2->dock_init = true;
-                nt2->free_init = false;
-                MULK();
-            }
-            s_dup_req.clear();
         }
         for (int i = 0; i < (int)s_objtabs.size(); ) {
             ObjTab& t = s_objtabs[i];
@@ -3278,9 +3280,36 @@ static void tab_tools() {
             }
             i++;
         }
+        /* the far-right + button (r26) */
+        if (ImGui::TabItemButton("+",
+                                 ImGuiTabItemFlags_NoTooltip |
+                                 ImGuiTabItemFlags_Trailing))
+            s_expl_req = true;
         ImGui::EndTabBar();
     }
+    if (!s_dup_req.empty()) {
+        /* r33: "Open in new tab" now floats its own window */
+        ClassTab* nt2 = open_inspector(s_dup_req, false);
+        if (nt2) {
+            MLK();
+            nt2->no_dock   = true;   /* r34: floats, not docked */
+            nt2->dock_init = true;
+            nt2->free_init = false;
+            MULK();
+        }
+        s_dup_req.clear();
+    }
     MULK();
+    /* the Dumper section (r38: the r28 Dumper tab folds back into
+       Classes - it is a two-button action, not a main tab) */
+    ImGui::Separator();
+    tab_dumper();
+}
+static void tab_tools() {
+    /* r28 kept the reference layout; r38 moved its content to the
+       r26 Classes tab - this stub stays so old saved configs that
+       reference "Tools" do not crash (it forwards to Classes) */
+    tab_classes();
 }
 static ImVec2 s_fab_pos(-1, -1);
 static bool    s_fab_drag = false;
@@ -3429,14 +3458,18 @@ static void draw_resize_handles() {
 /* r34 G4: class inspectors dock through the docking branch now -
    no manual attach map is needed */
 static void explorer_windows() {
-    /* r33 F6: detached class-list windows float free; long-press
-       the title strip to attach the window back to the main menu */
+    /* r38: r26 design - Explorer windows are ALWAYS floating windows
+       (the "+" in the Classes tab creates them detached); this draws
+       them all, raising the one the "+" just opened (s_focus_expl) */
     for (int i = 0; i < (int)s_explorers.size(); ) {
         ExplorerWin& e = s_explorers[i];
-        if (!e.detached) { i++; continue; }
         char ttl[192];
         snprintf(ttl, sizeof(ttl), "%s###ex%d",
                  e.search[0] ? e.search : "Classes", e.id);
+        if (s_focus_expl == e.id) {
+            ImGui::SetWindowFocus(ttl);
+            s_focus_expl = 0;
+        }
         if (!e.free_init) {
             ImGui::SetNextWindowPos(ImVec2(overlay_dp(10.f),
                                            overlay_dp(16.f)),
@@ -3477,10 +3510,11 @@ static void explorer_windows() {
             ImGui::OpenPopup("exattach");
         }
         if (ImGui::BeginPopup("exattach")) {
-            if (ImGui::MenuItem("Attach to main menu")) {
-                MLK();
-                e.detached = false;
-                MULK();
+            if (ImGui::MenuItem("Open a Classes tab for this filter")) {
+                /* r38: r26 explorers float permanently; this offers a
+                   class-window focus instead of re-docking (there is
+                   no explorer tab bar to return to any more) */
+                s_next_tab = "Classes";
             }
             ImGui::EndPopup();
         }
@@ -3495,13 +3529,13 @@ static void explorer_windows() {
     }
 }
 static void class_windows() {
-    /* r34 G4: inspectors are ordinary windows. New ones are queued
-       into the main window's bottom DockSpace (in menu_draw) and
-       dock on their first frame; dragging the tab undocks them and
-       dragging back re-docks (native docking). Fill/Restore in the
-       toolbar floats the window fullscreen and re-docks on undo. */
+    /* r38: the r26 layout - class inspectors that live in the
+       Classes tab bar are drawn there (tab_classes); the ones the
+       user popped out ("Open in new window", or dragged out) are
+       floating windows drawn here with the stock title bar. */
     for (int i = 0; i < (int)s_classes.size(); ) {
         ClassTab& c = s_classes[i];
+        if (!c.no_dock) { i++; continue; }   /* r38: drawn in the bar */
         if (c.win_close) {
             /* r32 R10: release the instances this window retained */
             MLK();
@@ -3517,7 +3551,10 @@ static void class_windows() {
             continue;
         }
         std::string ttl = win_title(c);
-        ImGuiWindowFlags wfl = ImGuiWindowFlags_NoCollapse;
+        ImGuiWindowFlags wfl = ImGuiWindowFlags_None;
+        /* r38: r26 inspectors are floating windows with the standard
+           title bar - collapse ("-") and close (X) are the stock
+           buttons, so NoCollapse is dropped (r37 policy kept) */
         if (c.fill) {
 #ifdef IMGUI_HAS_DOCK
             /* r34: a docked window ignores pos/size - pop it out
@@ -3660,23 +3697,9 @@ void menu_draw() {
     }
     ImGui::SetNextWindowBgAlpha(s_opacity);
     bool open = vis;
-    ImGui::Begin("Dex-tool (r37)", &open, wflags);
-    {   /* r37: the hand-drawn "v" minimize button is gone - a stock
-           ImGui title bar has a collapse button. What stays from the
-           old block is only the docking-strip reservation (r34 G4). */
-        bool dock_wanted = false;
-        for (auto& c : s_classes)
-            if (!c.win_close && !c.no_dock && !c.fill) {
-                dock_wanted = true;
-                break;
-            }
-#ifdef IMGUI_HAS_DOCK
-        s_dock_h = dock_wanted
-            ? ImGui::GetWindowSize().y * 0.45f : 0.f;
-#else
-        (void)dock_wanted;   /* r34: no docking branch - no strip */
-#endif
-    }
+    ImGui::Begin("Dex-tool (r38)", &open, wflags);
+    /* r38: the r34 docking strip is retired with the DockSpace above;
+       the Classes tab bar is ordinary tab content, not a dock node. */
     if (!open) {
         MLK();
         s_visible.store(false);   /* r32 R2 */
@@ -3686,9 +3709,11 @@ void menu_draw() {
     }
     if (ImGui::BeginTabBar("mainTabber")) {
         struct TabDef { const char* name; void (*fn)(); };
+        /* r38: the r26 main tab set, exact order - the r28 restructure
+           (Tools-first, merged Tracer) is retired */
         TabDef tabs[] = {
-            {"Tools",    tab_tools},    {"Tracer",   tab_tracer},
-            {"Patches",  tab_patches},  {"Dumper",   tab_dumper},
+            {"Classes",  tab_classes},  {"Patches",  tab_patches},
+            {"Trackers", tab_trackers}, {"Hooks",    tab_hooks},
             {"Recorder", tab_recorder}, {"Monitor",  tab_monitor},
             {"Script",   tab_script},   {"Settings", tab_settings},
         };
@@ -3706,27 +3731,16 @@ void menu_draw() {
         }
         ImGui::EndTabBar();
     }
-#ifdef IMGUI_HAS_DOCK
-    /* r34 G4: dock node for the inspectors - queued windows dock on
-       their first Begin; dragging a docked tab out undocks it, and
-       the tab bar shows it while it stays inside */
-    for (auto& c : s_classes) {
-        if (c.win_close || c.dock_init) continue;
-        if (c.fill || c.no_dock) { c.dock_init = true; continue; }
-        ImGui::DockBuilderDockWindow(win_title(c).c_str(),
-                                     ImGui::GetID("MainDock"));
-        c.dock_init = true;
-    }
-    if (s_dock_h > 0.f)
-        ImGui::DockSpace(ImGui::GetID("MainDock"),
-                         ImVec2(0, s_dock_h));
-#endif
+    /* r38: no DockSpace - the r26 layout has class inspectors either
+       in the Classes secondary bar (inside this window) or as plain
+       floating windows (class_windows); nothing docks. s_dock_h
+       stays 0 so the explorer list keeps its full height. */
     if (s_clip_msg[0] && conf_now_ms() - s_clip_ms < 2500)
         ImGui::TextColored(ImVec4(.4f, 1.f, .5f, 1), "%s", s_clip_msg);
     families_window();
     fm_window();
-    explorer_windows();   /* r33 F6: detached class-list windows */
-    class_windows();      /* r33 F7: class detail windows */
+    explorer_windows();   /* r38: the r26 floating Class Explorer windows */
+    class_windows();      /* r38: popped-out class inspector windows */
     if (!s_fullscreen) draw_resize_handles();
     ImVec2 wp = ImGui::GetWindowPos(), ws = ImGui::GetWindowSize();
     s_menu_rect = ImVec4(wp.x, wp.y, ws.x, ws.y);   /* r35 D5 */
