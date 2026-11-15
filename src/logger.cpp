@@ -217,7 +217,7 @@ void logger_init(const char* base_dir) {
                  "mem: VmRSS=%ldkB MemAvailable=%ldkB", rss, avail);
         log_info(mm);
     }
-    log_info("logger_init done (build r37: stock ImGui design - StyleColorsDark/Light/Classic verbatim, standard title bars and widgets, custom palette/FAB/roundings removed, dp sizes and touch hit-boxes kept. r36: menu mutex on all container writes, single-toggle FAB latch, atomic visibility, 512-entry hit cap. r35: density-correct sizes in dp, ImGui Tables, touch release clears hover, ImGui 1.93.0-docking single-click API)");
+    log_info("logger_init done (build r38: r26 window design restored - Classes/Patches/Trackers/Hooks/Recorder/Monitor/Script/Settings main tabs, opened classes as tabs with the far-right + opening floating Class Explorer windows, pink Options button, Inspector button, Caller/Patcher/Tracer/Hooker method sub-tabs, docking retired; r37 stock palettes kept. r36: menu mutex on all container writes, single-toggle latch, atomic visibility, 512-entry hit cap. r35: dp sizes, ImGui Tables, touch release clears hover, 1.93 single-click API)");
 }
 void logger_retarget(const char* base_dir) {
     if (!base_dir || !base_dir[0]) return;
