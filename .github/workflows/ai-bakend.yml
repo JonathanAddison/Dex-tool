@@ -8,7 +8,8 @@ on:
 jobs:
   run-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 120
+
     steps:
       - name: Checkout dev branch
         uses: actions/checkout@v4
@@ -20,39 +21,67 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: pip install flask requests
+      - name: Install Python dependencies
+        run: pip install flask flask-cors requests
 
       - name: Install huggingface-cli & download model
         run: |
           curl -LsSf https://hf.co/cli/install.sh | bash -s
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-          hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF --include "*Q4_K_M.gguf" --local-dir ./model
+          hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF \
+            --include "*Q4_K_M.gguf" \
+            --local-dir ./model
 
       - name: Download llama.cpp server
         run: |
           wget https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
-          mkdir -p llama-bin && tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
+          mkdir -p llama-bin
+          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
 
-      - name: Start llama-server with --jinja
+      - name: Start llama-server
         run: |
           MODEL_FILE=$(find ./model -name "*.gguf" | head -n 1)
-          ./llama-bin/llama-server -m "$MODEL_FILE" --host 127.0.0.1 --port 8080 --ctx-size 8192 --jinja &
-          sleep 15
+          echo "📁 Model: $MODEL_FILE"
+          nohup ./llama-bin/llama-server \
+            -m "$MODEL_FILE" \
+            --host 127.0.0.1 \
+            --port 8080 \
+            --ctx-size 8192 \
+            --n-predict 2048 \
+            --jinja \
+            --parallel 1 \
+            > llama.log 2>&1 &
+          echo "⏳ Waiting for llama-server to be ready..."
+          for i in $(seq 1 60); do
+            if curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
+              echo "✅ llama-server is up after ${i}0s"
+              break
+            fi
+            sleep 10
+          done
+          echo "--- llama.log tail ---"
+          tail -n 30 llama.log
 
-      - name: Start Agent Proxy
+      - name: Start Agent Proxy (Flask)
         run: |
           nohup python agent_server.py > agent.log 2>&1 &
-          sleep 5
+          sleep 8
+          echo "--- Agent Log ---"
+          cat agent.log
+          echo "--- Health check ---"
+          curl -s http://127.0.0.1:5000/health || echo "Flask not responding"
 
-      - name: Expose via tunnel
+      - name: Expose via localtunnel
         run: |
           npm install -g localtunnel
-          lt --port 5000 --print-requests > tunnel.log 2>&1 &
-          sleep 5
-          TUNNEL_URL=$(grep -o 'https://[^ ]*' tunnel.log | head -n 1)
-          echo "🌐 API URL: $TUNNEL_URL"
+          nohup lt --port 5000 --print-requests > tunnel.log 2>&1 &
+          sleep 8
+          TUNNEL_URL=$(grep -o 'https://[^ ]*\.loca\.lt' tunnel.log | head -n 1)
+          echo "🌐 TUNNEL URL: $TUNNEL_URL"
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
 
       - name: Keep alive
-        run: sleep 14400
+        run: |
+          echo "🚀 API URL for frontend: ${{ env.TUNNEL_URL }}"
+          echo "این آدرس را در فیلد API صفحه چت پیست کن."
+          sleep 3600
