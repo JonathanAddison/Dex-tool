@@ -1,0 +1,68 @@
+name: AI Backend for Dex-tool
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ dev ] # یا main، بسته به شاخه‌ای که روش کار می‌کنی
+
+jobs:
+  run-ai-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120 # زمان کافی برای دانلود و اجرای مدل
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install huggingface-cli
+        run: |
+          curl -LsSf https://hf.co/cli/install.sh | bash -s
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Download Ministral-3-14B GGUF (Q4_K_M)
+        run: |
+          hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF \
+            --include "*Q4_K_M.gguf" \
+            --local-dir ./model
+
+      - name: Download llama.cpp server binary
+        run: |
+          wget https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          mkdir -p llama-bin
+          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
+
+      - name: Start llama.cpp server
+        run: |
+          MODEL_FILE=$(find ./model -name "*.gguf" | head -n 1)
+          # سرور با پشتیبانی از streaming و context طولانی برای کدهای ریپو
+          ./llama-bin/llama-server \
+            -m "$MODEL_FILE" \
+            --host 0.0.0.0 \
+            --port 8080 \
+            --ctx-size 8192 \
+            --n-predict 1024 \
+            --parallel 1 \
+            --cont-batching \
+            --metrics &
+          echo "✅ Server started on port 8080"
+          # یه صبر کوتاه تا سرور کامل بالا بیاد
+          sleep 15
+
+      - name: Expose server via localtunnel (برای دسترسی از GitHub Pages)
+        run: |
+          # نصب localtunnel
+          npm install -g localtunnel
+          # اجرای تونل روی پورت 8080
+          lt --port 8080 --print-requests > tunnel.log 2>&1 &
+          sleep 5
+          # استخراج URL عمومی
+          TUNNEL_URL=$(grep -o 'https://[^ ]*' tunnel.log | head -n 1)
+          echo "🌐 Public API URL: $TUNNEL_URL"
+          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+
+      - name: Keep job alive and show tunnel URL
+        run: |
+          echo "🚀 API در دسترس است در: ${{ env.TUNNEL_URL }}"
+          echo "این URL را در فایل index.html فرانت‌اند قرار بده."
+          # Job رو برای مدت طولانی‌تری زنده نگه می‌داریم تا بتونی تست کنی
+          sleep 3600 # ۱ ساعت
