@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dex-tool AI (Agent Mode)</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', Tahoma, sans-serif; }
@@ -12,106 +13,218 @@
         .avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
         .user .avatar { background: #10a37f; color: #fff; }
         .ai .avatar { background: #5436da; color: #fff; }
-        .bubble { padding: 12px 16px; border-radius: 12px; max-width: 75%; line-height: 1.7; font-size: 15px; background: #1e1e1e; border: 1px solid #333; }
+        .bubble { padding: 12px 16px; border-radius: 12px; max-width: 78%; line-height: 1.8; font-size: 15px; background: #1e1e1e; border: 1px solid #333; }
         .user .bubble { background: #10a37f; color: #fff; border-bottom-right-radius: 4px; }
         .ai .bubble { border-bottom-left-radius: 4px; }
-        .think-box { background: #1a1a2e; border-right: 3px solid #5436da; padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; font-size: 13px; color: #a0a0c0; font-style: italic; max-height: 150px; overflow-y: auto; }
-        .tool-box { background: #1a2e1a; border-right: 3px solid #4ade80; padding: 6px 10px; border-radius: 6px; margin: 6px 0; font-size: 12px; color: #a0c0a0; direction: ltr; text-align: left; }
-        .status-badge { font-size: 11px; color: #4ade80; margin-top: 4px; display: none; }
-        #controls { max-width: 900px; margin: 0 auto; padding: 8px 20px; width: 100%; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .think-box { background: #1a1a2e; border-right: 3px solid #5436da; padding: 8px 12px; border-radius: 6px; margin-bottom: 10px; font-size: 12.5px; color: #b0b0d0; font-style: italic; max-height: 180px; overflow-y: auto; white-space: pre-wrap; }
+        .think-box .lbl { display: block; font-weight: bold; font-style: normal; color: #7c7cff; margin-bottom: 4px; }
+        .tool-box { background: #1a2e1a; border-right: 3px solid #4ade80; padding: 6px 10px; border-radius: 6px; margin: 6px 0; font-size: 12px; color: #a0c0a0; direction: ltr; text-align: left; font-family: 'Courier New', monospace; }
+        .tool-box b { color: #7ee787; }
+        .status-badge { font-size: 11px; color: #4ade80; margin-top: 8px; display: none; }
+        .status-badge.thinking { color: #facc15; }
+        #controls { max-width: 900px; margin: 0 auto; padding: 8px 20px; width: 100%; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border-top: 1px solid #1a1a1a; }
         #controls label { font-size: 12px; color: #aaa; }
         #controls select, #controls input { background: #1e1e1e; border: 1px solid #333; color: #ccc; padding: 6px 10px; border-radius: 6px; font-size: 12px; }
+        #controls input { direction: ltr; text-align: left; }
         #input-area { padding: 16px 20px; border-top: 1px solid #2a2a2a; }
         #input-wrap { max-width: 900px; margin: 0 auto; display: flex; gap: 10px; background: #1e1e1e; border-radius: 12px; padding: 8px; border: 1px solid #333; }
-        #user-input { flex: 1; background: transparent; border: none; color: #ececec; font-size: 15px; resize: none; outline: none; padding: 8px; }
+        #user-input { flex: 1; background: transparent; border: none; color: #ececec; font-size: 15px; resize: none; outline: none; padding: 8px; font-family: inherit; }
         #send-btn { background: #5436da; color: #fff; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; font-weight: bold; }
-        #send-btn:disabled { opacity: 0.5; }
-        .error { color: #f87171; font-size: 13px; max-width: 900px; margin: 4px auto; }
+        #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        #send-btn:hover:not(:disabled) { background: #6b4ce6; }
+        .error { color: #f87171; font-size: 13px; max-width: 900px; margin: 4px auto; padding: 0 20px; }
         pre { background: #0d0d0d; padding: 12px; border-radius: 8px; overflow-x: auto; direction: ltr; text-align: left; margin: 8px 0; border: 1px solid #2a2a2a; }
+        code { font-family: 'Courier New', monospace; font-size: 13px; color: #7ee787; }
+        .bubble p { margin: 6px 0; }
     </style>
 </head>
 <body>
-    <div id="chat"><div class="msg ai"><div class="avatar">🤖</div><div class="bubble">سلام داداش! حالا ابزار دارم و میتونم فایل‌های ریپو رو بخونم و توی کدها سرچ کنم. چیکار کنم؟</div></div></div>
+    <div id="chat">
+        <div class="msg ai">
+            <div class="avatar">🤖</div>
+            <div class="bubble">سلام داداش! حالا ابزار دارم و می‌تونم فایل‌های ریپو رو بخونم، لیست کنم و توی کدها سرچ کنم. بگو چی رو بررسی کنم.</div>
+        </div>
+    </div>
+
     <div id="controls">
-        <label>آدرس API:</label> <input type="text" id="api-url" placeholder="https://your-tunnel.loca.lt" style="flex:1; min-width:200px;">
+        <label>API:</label>
+        <input type="text" id="api-url" placeholder="https://xxx.loca.lt" style="flex:1; min-width:220px;">
         <label>عمق فکر:</label>
         <select id="reasoning-effort">
             <option value="low">کم (سریع)</option>
             <option value="medium" selected>متوسط</option>
-            <option value="high">زیاد (دقیق)</option>
+            <option value="high">زیاد</option>
             <option value="xhigh">خیلی زیاد</option>
         </select>
     </div>
+
     <div id="input-area">
-        <div id="input-wrap"><textarea id="user-input" rows="1" placeholder="سوالت رو بپرس..."></textarea><button id="send-btn" onclick="send()">ارسال</button></div>
+        <div id="input-wrap">
+            <textarea id="user-input" rows="1" placeholder="سوالت رو بپرس... (Enter = ارسال، Shift+Enter = خط جدید)"></textarea>
+            <button id="send-btn">ارسال</button>
+        </div>
         <div class="error" id="err"></div>
     </div>
+
     <script>
-        const chat = document.getElementById('chat'), input = document.getElementById('user-input'), btn = document.getElementById('send-btn');
-        const apiInput = document.getElementById('api-url'), effortSelect = document.getElementById('reasoning-effort');
+        const chat = document.getElementById('chat');
+        const input = document.getElementById('user-input');
+        const btn = document.getElementById('send-btn');
+        const apiInput = document.getElementById('api-url');
+        const effortSel = document.getElementById('reasoning-effort');
+        const errEl = document.getElementById('err');
+
         apiInput.value = localStorage.getItem('api_url') || '';
         apiInput.onchange = () => localStorage.setItem('api_url', apiInput.value.trim());
-        input.onkeydown = e => { if(e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+        effortSel.value = localStorage.getItem('effort') || 'medium';
+        effortSel.onchange = () => localStorage.setItem('effort', effortSel.value);
+
+        input.addEventListener('input', () => {
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        });
+
+        input.onkeydown = (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+        };
+        btn.onclick = send;
 
         function addMsg(role, text) {
-            const d = document.createElement('div'); d.className = `msg ${role}`;
-            d.innerHTML = `<div class="avatar">${role==='user'?'👤':'🤖'}</div><div class="bubble">${role==='user'?text:''}</div>`;
-            chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+            const d = document.createElement('div');
+            d.className = `msg ${role}`;
+            d.innerHTML = `<div class="avatar">${role === 'user' ? '👤' : '🤖'}</div><div class="bubble">${role === 'user' ? escapeHtml(text) : ''}</div>`;
+            chat.appendChild(d);
+            chat.scrollTop = chat.scrollHeight;
             return d.querySelector('.bubble');
         }
 
+        function escapeHtml(t) {
+            const d = document.createElement('div');
+            d.textContent = t;
+            return d.innerHTML;
+        }
+
+        function renderMarkdown(text) {
+            let html = escapeHtml(text);
+            html = html.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.trim()}</code></pre>`);
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+            html = html.replace(/\n/g, '<br>');
+            return html;
+        }
+
         async function send() {
-            const text = input.value.trim(), api = apiInput.value.trim();
-            if(!text || !api) { document.getElementById('err').textContent = 'آدرس API و پیام لازمه.'; return; }
-            document.getElementById('err').textContent = '';
-            input.value = ''; btn.disabled = true;
+            const text = input.value.trim();
+            const api = apiInput.value.trim().replace(/\/+$/, '');
+            if (!text || !api) {
+                errEl.textContent = 'آدرس API و پیام لازمه.';
+                return;
+            }
+            errEl.textContent = '';
+            input.value = ''; input.style.height = 'auto';
+            btn.disabled = true;
+
             addMsg('user', text);
             const bubble = addMsg('ai', '');
-            let fullContent = '', fullReasoning = '', toolHistory = [];
 
-            // المان‌های داخل حباب
-            const thinkDiv = document.createElement('div'); thinkDiv.className = 'think-box'; thinkDiv.style.display='none';
-            const toolDiv = document.createElement('div'); toolDiv.className = 'tool-box'; toolDiv.style.display='none';
+            const thinkDiv = document.createElement('div');
+            thinkDiv.className = 'think-box';
+            thinkDiv.style.display = 'none';
+            thinkDiv.innerHTML = '<span class="lbl">🧠 افکار:</span><span class="think-text"></span>';
+
+            const toolsDiv = document.createElement('div');
+            toolsDiv.style.display = 'none';
+
             const contentDiv = document.createElement('div');
-            const statusDiv = document.createElement('div'); statusDiv.className = 'status-badge'; statusDiv.textContent = '✓ تمام شد';
-            bubble.append(thinkDiv, toolDiv, contentDiv, statusDiv);
+
+            const status = document.createElement('div');
+            status.className = 'status-badge thinking';
+            status.textContent = '⏳ در حال فکر کردن...';
+            status.style.display = 'block';
+
+            bubble.append(thinkDiv, toolsDiv, contentDiv, status);
+
+            let fullReasoning = '';
+            let fullContent = '';
+            let sawContent = false;
 
             try {
                 const res = await fetch(`${api}/v1/chat/completions`, {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'bypass-tunnel-reminder': 'true',
+                    },
                     body: JSON.stringify({
-                        messages: [{role:'system', content:'You are an expert reverse engineer. Use tools to read files and search code. Always read relevant files before answering.'}, {role:'user', content:text}],
-                        reasoning_effort: effortSelect.value,
-                        stream: true
-                    })
+                        messages: [{ role: 'user', content: text }],
+                        reasoning_effort: effortSel.value,
+                        stream: true,
+                    }),
                 });
-                if(!res.ok) throw new Error(`HTTP ${res.status}`);
-                const reader = res.body.getReader(), dec = new TextDecoder();
-                while(true) {
-                    const {done, value} = await reader.read(); if(done) break;
-                    for(const line of dec.decode(value, {stream:true}).split('\n').filter(l=>l.startsWith('data: '))) {
-                        const data = line.slice(6).trim(); if(data==='[DONE]') continue;
-                        try {
-                            const json = JSON.parse(data), delta = json.choices?.[0]?.delta;
-                            if(!delta) continue;
-                            if(delta.reasoning_content) {
-                                fullReasoning += delta.reasoning_content;
-                                thinkDiv.style.display='block'; thinkDiv.textContent = fullReasoning;
-                            }
-                            // شبیه‌سازی نمایش ابزار (چون بک‌اند ما خودش ابزار رو اجرا می‌کنه، اینجا فقط برای نمایشه)
-                            if(delta.content && delta.content.includes('read_file')) {
-                                toolDiv.style.display='block'; toolDiv.textContent += '🔧 خواندن فایل...\n';
-                            }
-                            if(delta.content) {
-                                fullContent += delta.content;
-                                contentDiv.innerHTML = fullContent.replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/\n/g,'<br>');
-                            }
-                        } catch(e) {}
+
+                if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+
+                const reader = res.body.getReader();
+                const dec = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = dec.decode(value, { stream: true });
+                    for (const line of chunk.split('\n')) {
+                        if (!line.startsWith('data: ')) continue;
+                        const data = line.slice(6).trim();
+                        if (data === '[DONE]') continue;
+                        let json;
+                        try { json = JSON.parse(data); } catch { continue; }
+                        const delta = json.choices?.[0]?.delta;
+                        if (!delta) continue;
+
+                        if (delta.reasoning_content) {
+                            fullReasoning += delta.reasoning_content;
+                            thinkDiv.style.display = 'block';
+                            thinkDiv.querySelector('.think-text').textContent = fullReasoning;
+                            chat.scrollTop = chat.scrollHeight;
+                        }
+
+                        if (delta.tool_call) {
+                            sawContent = true;
+                            toolsDiv.style.display = 'block';
+                            const t = document.createElement('div');
+                            t.className = 'tool-box';
+                            const argsStr = JSON.stringify(delta.tool_call.arguments || {});
+                            t.innerHTML = `🔧 <b>${delta.tool_call.name}</b>(${argsStr})`;
+                            toolsDiv.appendChild(t);
+                            chat.scrollTop = chat.scrollHeight;
+                        }
+
+                        if (delta.content) {
+                            sawContent = true;
+                            fullContent += delta.content;
+                            contentDiv.innerHTML = renderMarkdown(fullContent);
+                            chat.scrollTop = chat.scrollHeight;
+                        }
+
+                        if (json.choices?.[0]?.finish_reason === 'stop') {
+                            status.className = 'status-badge';
+                            status.textContent = '✓ تمام شد';
+                        }
                     }
                 }
-                statusDiv.style.display = 'block';
-            } catch(e) { contentDiv.innerHTML = `<span style="color:#f87171">خطا: ${e.message}</span>`; }
-            finally { btn.disabled = false; input.focus(); }
+
+                if (!status.textContent.includes('تمام')) {
+                    status.className = 'status-badge';
+                    status.textContent = '✓ تمام شد';
+                }
+            } catch (e) {
+                contentDiv.innerHTML = `<span style="color:#f87171">❌ خطا: ${escapeHtml(e.message)}</span>`;
+                status.className = 'status-badge';
+                status.style.color = '#f87171';
+                status.textContent = '✗ شکست';
+            } finally {
+                btn.disabled = false;
+                input.focus();
+            }
         }
     </script>
 </body>
