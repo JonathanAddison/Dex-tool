@@ -1,13 +1,19 @@
 name: AI Backend with Tools
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [ dev ]
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -28,13 +34,13 @@ jobs:
           wget https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
           mkdir -p llama-bin && tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
 
-      - name: Start llama-server with --jinja (enables tool calling)
+      - name: Start llama-server with --jinja
         run: |
           MODEL_FILE=$(find ./model -name "*.gguf" | head -n 1)
           ./llama-bin/llama-server -m "$MODEL_FILE" --host 127.0.0.1 --port 8080 --ctx-size 8192 --jinja &
           sleep 15
 
-      - name: Start Agent Proxy (Flask)
+      - name: Start Agent Proxy
         run: |
           nohup python agent_server.py > agent.log 2>&1 &
           sleep 5
@@ -45,8 +51,8 @@ jobs:
           lt --port 5000 --print-requests > tunnel.log 2>&1 &
           sleep 5
           TUNNEL_URL=$(grep -o 'https://[^ ]*' tunnel.log | head -n 1)
-          echo "🌐 API URL (از این استفاده کن): $TUNNEL_URL"
+          echo "🌐 API URL: $TUNNEL_URL"
           echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
 
       - name: Keep alive
-        run: sleep 3600
+        run: sleep 14400
