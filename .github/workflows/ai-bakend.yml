@@ -34,11 +34,11 @@ jobs:
       - name: Download Draft Model (Qwen2.5-0.5B Q4_K_M)
         run: hf download Qwen/Qwen2.5-0.5B-Instruct-GGUF --include "*q4_k_m.gguf" --local-dir ./draft
 
-      - name: Download llama.cpp (pre-built)
+      - name: Download llama.cpp (b12391 - fixes Ministral tool-call parsing)
         run: |
-          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12391/llama-b12391-bin-ubuntu-x64.tar.gz
           mkdir -p llama-bin
-          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
+          tar -xzf llama-b12391-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
 
       - name: Start llama-server with Speculative Decoding
         run: |
@@ -79,10 +79,10 @@ jobs:
       - name: Start Flask with waitress
         run: |
           nohup python -c "
-  from waitress import serve
-from agent_server import app
-serve(app, host='0.0.0.0', port=5000, threads=8)
-" > agent.log 2>&1 &
+           from waitress import serve
+           from agent_server import app
+           serve(app, host='0.0.0.0', port=5000, threads=8)
+          " > agent.log 2>&1 &
           sleep 5
           curl -sf http://127.0.0.1:5000/health | tee /dev/stderr
           echo " ✅ Flask ready"
