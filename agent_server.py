@@ -1,4 +1,4 @@
-import json, os, re, subprocess, resource
+import json, os, re
 import requests
 from flask import Flask, request, Response, stream_with_context, jsonify, send_from_directory
 from flask_cors import CORS
@@ -28,7 +28,6 @@ RULES:
 5. Cite exact paths and line numbers.
 6. Respond in the user's language (Persian → Persian)."""
 
-# --- روت‌های سرویس‌دهی ---
 @app.route("/")
 def index():
     return send_from_directory(REPO_ROOT, "index.html")
@@ -84,9 +83,12 @@ def proxy_chat():
                 msg = r.json()["choices"][0]["message"]
 
                 raw = msg.get("content", "") or ""
+                # ✅ استخراج reasoning از [THINK] یا فیلد reasoning_content
                 th = re.search(r'\[THINK\](.*?)\[/THINK\]', raw, re.DOTALL)
-                if th:
-                    yield sse({"choices": [{"delta": {"reasoning_content": th.group(1).strip()}}]})
+                reasoning = (th.group(1).strip() if th else msg.get("reasoning_content", "")) or ""
+
+                if reasoning:
+                    yield sse({"choices": [{"delta": {"reasoning_content": reasoning}}]})
 
                 tool_calls = msg.get("tool_calls")
                 if not tool_calls:
@@ -97,7 +99,16 @@ def proxy_chat():
                     yield "data: [DONE]\n\n"
                     return
 
-                messages.append({"role": "assistant", "content": raw, "tool_calls": tool_calls})
+                # ✅ اصلاح کلیدی: content رو None بذار و reasoning_content رو جدا اضافه کن
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": None,  # مهم: نه raw، نه [THINK]
+                    "tool_calls": tool_calls,
+                }
+                if reasoning:
+                    assistant_msg["reasoning_content"] = reasoning
+                messages.append(assistant_msg)
+
                 for tc in tool_calls:
                     fn = tc["function"]["name"]
                     try:
