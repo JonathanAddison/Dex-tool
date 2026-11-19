@@ -4,6 +4,7 @@ import os
 import json
 import sys
 import re
+import tempfile
 
 MODEL_PATH = os.environ.get("MODEL_PATH")
 AGENT_NAME = os.environ.get("AGENT_NAME")
@@ -52,27 +53,39 @@ def clean_output(text):
 
 def run_llm(prompt, model_path, agent):
     ctx = MAX_CTX.get(agent, 32768)
-    cmd = [
-        "./llama.cpp/build/bin/llama-completion",
-        "-m", model_path,
-        "-p", prompt,
-        "-n", "4096",
-        "--temp", "0.2",
-        "--top-p", "0.9",
-        "-c", str(ctx),                    # context حداکثری مجاز مدل
-        "--cache-type-k", "q8_0",         # KV cache را نصف می‌کند → امکان context بالاتر
-        "--cache-type-v", "q8_0",
-        "--no-display-prompt",
-        "-t", "4",
-        "--log-disable",
-    ]
+    
+    # نوشتن prompt در یک فایل موقت برای دور زدن محدودیت طول آرگومان
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+        f.write(prompt)
+        prompt_file = f.name
+
     try:
+        cmd = [
+            "./llama.cpp/build/bin/llama-completion",
+            "-m", model_path,
+            "-f", prompt_file,             # <--- به جای -p از -f استفاده می‌کنیم
+            "-n", "4096",
+            "--temp", "0.2",
+            "--top-p", "0.9",
+            "-c", str(ctx),
+            "--cache-type-k", "q8_0",
+            "--cache-type-v", "q8_0",
+            "--no-display-prompt",
+            "-t", "4",
+            "--log-disable",
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10800)
         return clean_output(result.stdout)
     except subprocess.TimeoutExpired:
         return "[ERROR: Model timed out]"
     except subprocess.CalledProcessError as e:
         return f"[ERROR: {e.stderr[:500]}]"
+    finally:
+        # پاک کردن فایل موقت بعد از اجرا
+        try:
+            os.unlink(prompt_file)
+        except OSError:
+            pass
 
 def check_consensus(text, rnd):
     if rnd < 2:
