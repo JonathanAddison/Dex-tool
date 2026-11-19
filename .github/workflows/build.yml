@@ -1,8 +1,6 @@
 name: Build Dex-tool
 
 on:
-  push:
-    branches: ["dev"]
   workflow_dispatch:
 
 permissions:
