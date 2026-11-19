@@ -10,20 +10,14 @@ on:
         default: 'Find and fix the most critical bug in the Dex-tool project.'
 
 jobs:
-  # ---------- آماده‌سازی (کش شده) ----------
   setup:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Cache models and llama.cpp
         uses: actions/cache@v4
-        with:
-          path: |
-            models/
-            llama.cpp/
-          key: ${{ runner.os }}-models-llama-v1
-          # اگر کش پیدا نشد، دانلود کن
-      - name: Download Models & Build llama.cpp (if cache miss)
+        with: { path: "models/\nllama.cpp/", key: "${{ runner.os }}-models-llama-v1" }
+      - name: Download if cache miss
         run: |
           if [ ! -d "llama.cpp" ]; then
             mkdir -p models
@@ -33,23 +27,55 @@ jobs:
             cd llama.cpp && make
           fi
       - uses: actions/upload-artifact@v4
-        with:
-          name: setup-artifacts
-          path: |
-            models/
-            llama.cpp/
-          retention-days: 1
+        with: { name: setup-artifacts, path: "models/\nllama.cpp/", retention-days: 1 }
 
-  # ---------- حلقه اصلی (۷ دور) ----------
-  consensus-loop:
+  round1:
     needs: setup
-    strategy:
-      matrix:
-        round: [1, 2, 3, 4, 5, 6, 7]
-      fail-fast: false # ادامه بده حتی اگر یک دور شکست بخوره
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
-      round_number: ${{ matrix.round }}
-    # پاس دادن خروجی دور قبل به دور فعلی
-    # (این بخش در GitHub Actions به صورت مستقیم پشتیبانی نمی‌شه و باید با یک Job میانی حل بشه)
+      round_number: 1
+
+  round2:
+    needs: round1
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 2
+      # مقادیر زیر به صورت خودکار از round1 پاس داده می‌شن
+      # (در فایل reusable workflow با needs.previous تعریف شده)
+
+  round3:
+    needs: round2
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 3
+
+  round4:
+    needs: round3
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 4
+
+  round5:
+    needs: round4
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 5
+
+  round6:
+    needs: round5
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 6
+
+  round7:
+    needs: round6
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: 7
