@@ -10,72 +10,70 @@ on:
         default: 'Find and fix the most critical bug in the Dex-tool project.'
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Cache models and llama.cpp
-        uses: actions/cache@v4
-        with: { path: "models/\nllama.cpp/", key: "${{ runner.os }}-models-llama-v1" }
-      - name: Download if cache miss
-        run: |
-          if [ ! -d "llama.cpp" ]; then
-            mkdir -p models
-            curl -L -o models/qwen.gguf "https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-            curl -L -o models/glm.gguf "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q4_K_M.gguf"
-            git clone https://github.com/ggerganov/llama.cpp
-            cd llama.cpp && make
-          fi
-      - uses: actions/upload-artifact@v4
-        with: { name: setup-artifacts, path: "models/\nllama.cpp/", retention-days: 1 }
-
   round1:
-    needs: setup
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 1
+      qwen_prev: ""
+      glm_prev: ""
 
   round2:
     needs: round1
+    if: needs.round1.outputs.qwen_consensus != 'true' || needs.round1.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 2
-      # مقادیر زیر به صورت خودکار از round1 پاس داده می‌شن
-      # (در فایل reusable workflow با needs.previous تعریف شده)
+      qwen_prev: ${{ needs.round1.outputs.qwen_output }}
+      glm_prev: ${{ needs.round1.outputs.glm_output }}
 
   round3:
     needs: round2
+    if: needs.round2.outputs.qwen_consensus != 'true' || needs.round2.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 3
+      qwen_prev: ${{ needs.round2.outputs.qwen_output }}
+      glm_prev: ${{ needs.round2.outputs.glm_output }}
 
   round4:
     needs: round3
+    if: needs.round3.outputs.qwen_consensus != 'true' || needs.round3.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 4
+      qwen_prev: ${{ needs.round3.outputs.qwen_output }}
+      glm_prev: ${{ needs.round3.outputs.glm_output }}
 
   round5:
     needs: round4
+    if: needs.round4.outputs.qwen_consensus != 'true' || needs.round4.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 5
+      qwen_prev: ${{ needs.round4.outputs.qwen_output }}
+      glm_prev: ${{ needs.round4.outputs.glm_output }}
 
   round6:
     needs: round5
+    if: needs.round5.outputs.qwen_consensus != 'true' || needs.round5.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 6
+      qwen_prev: ${{ needs.round5.outputs.qwen_output }}
+      glm_prev: ${{ needs.round5.outputs.glm_output }}
 
   round7:
     needs: round6
+    if: needs.round6.outputs.qwen_consensus != 'true' || needs.round6.outputs.glm_consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
       task_prompt: ${{ github.event.inputs.task_prompt }}
       round_number: 7
+      qwen_prev: ${{ needs.round6.outputs.qwen_output }}
+      glm_prev: ${{ needs.round6.outputs.glm_output }}
