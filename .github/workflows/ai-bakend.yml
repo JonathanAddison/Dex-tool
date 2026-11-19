@@ -20,8 +20,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bubblewrap binutils sqlite3 xxd
 
-      # ✅ گزینه A (پیش‌فرض): فعال‌سازی bwrap با sysctl
-      # گزینه B (امن‌تر): از Docker Sandbox استفاده کن (پایین‌تر توضیح داده شده)
+      # ✅ فعال‌سازی user namespaces برای bwrap در Ubuntu 24.04
       - name: Enable unprivileged user namespaces (Ubuntu 24.04 fix for bwrap)
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
@@ -97,21 +96,69 @@ jobs:
           curl -sf http://127.0.0.1:5000/health | tee /dev/stderr
           echo " ✅ Flask ready"
 
-      - name: Expose via Cloudflare Quick Tunnel
+      # ✅ اصلاح 502: cloudflared به 127.0.0.1 وصل می‌شه (نه localhost که IPv6 رو امتحان می‌کنه)
+      - name: Expose via Cloudflare Quick Tunnel (IPv4 pinned)
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
           chmod +x cloudflared
-          nohup ./cloudflared tunnel --url http://localhost:5000 --no-autoupdate > tunnel.log 2>&1 &
-          sleep 12
-          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n1)
+
+          nohup ./cloudflared tunnel \
+            --url http://127.0.0.1:5000 \
+            --no-autoupdate \
+            --protocol http2 \
+            > tunnel.log 2>&1 &
+
+          # مرحله ۱: صبر تا ظاهر شدن URL
+          echo "⏳ Waiting for tunnel URL ..."
+          URL=""
+          for i in $(seq 1 30); do
+            URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n1 || true)
+            [ -n "$URL" ] && break
+            sleep 2
+          done
           if [ -z "$URL" ]; then
             echo "❌ Tunnel URL not found"; cat tunnel.log; exit 1
           fi
           echo "🌐 TUNNEL URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
-      - name: Keep alive
+          # مرحله ۲: صبر تا تونل واقعاً به Flask برسه
+          echo "⏳ Probing public URL until it serves /health ..."
+          OK=0
+          for i in $(seq 1 40); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health" || true)
+            echo "  attempt $i -> HTTP $CODE"
+            if [ "$CODE" = "200" ]; then OK=1; echo "✅ Tunnel is serving traffic"; break; fi
+            sleep 3
+          done
+          if [ "$OK" != "1" ]; then
+            echo "❌ Tunnel URL exists but origin still unreachable"
+            echo "--- cloudflared log ---"; tail -n 40 tunnel.log
+            echo "--- flask log ---"; tail -n 40 agent.log
+            exit 1
+          fi
+
+      - name: Keep alive (with watchdog)
         run: |
-          echo "🚀 API:  ${{ env.TUNNEL_URL }}"
+          echo "🚀 API:    ${{ env.TUNNEL_URL }}"
           echo "📋 Health: ${{ env.TUNNEL_URL }}/health"
-          sleep 3600
+          echo "💬 Chat:   ${{ env.TUNNEL_URL }}/v1/chat/completions"
+          for i in $(seq 1 120); do
+            sleep 30
+            if ! curl -sf http://127.0.0.1:5000/health >/dev/null; then
+              echo "⚠️ Flask died at iteration $i! Last 40 lines:"
+              tail -n 40 agent.log
+              break
+            fi
+            if ! pgrep -f cloudflared >/dev/null; then
+              echo "⚠️ cloudflared died at iteration $i! Last 40 lines:"
+              tail -n 40 tunnel.log
+              break
+            fi
+            if ! pgrep -f llama-server >/dev/null; then
+              echo "⚠️ llama-server died at iteration $i! Last 40 lines:"
+              tail -n 40 llama.log
+              break
+            fi
+            echo "[$i] ✅ all alive"
+          done
