@@ -75,12 +75,18 @@ jobs:
           OUTPUT_FILE: results/qwen_round${{ inputs.round_number }}.json
           CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
-          python scripts/peer_consensus.py
+          python scripts/peer_consensus.py || true
+
+          if [ ! -f "$OUTPUT_FILE" ]; then
+            echo "❌ OUTPUT_FILE ساخته نشد: $OUTPUT_FILE" >&2
+            exit 1
+          fi
+
           {
             echo "agent_output<<OUTPUT_EOF"
-            jq -r '.output' "$OUTPUT_FILE"
+            jq -r '.output // ""' "$OUTPUT_FILE"
             echo "OUTPUT_EOF"
-            echo "consensus_flag=$(jq -r '.consensus' "$OUTPUT_FILE")"
+            echo "consensus_flag=$(jq -r '.consensus // false' "$OUTPUT_FILE")"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
@@ -134,12 +140,18 @@ jobs:
           OUTPUT_FILE: results/glm_round${{ inputs.round_number }}.json
           CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
-          python scripts/peer_consensus.py
+          python scripts/peer_consensus.py || true
+
+          if [ ! -f "$OUTPUT_FILE" ]; then
+            echo "❌ OUTPUT_FILE ساخته نشد: $OUTPUT_FILE" >&2
+            exit 1
+          fi
+
           {
             echo "agent_output<<OUTPUT_EOF"
-            jq -r '.output' "$OUTPUT_FILE"
+            jq -r '.output // ""' "$OUTPUT_FILE"
             echo "OUTPUT_EOF"
-            echo "consensus_flag=$(jq -r '.consensus' "$OUTPUT_FILE")"
+            echo "consensus_flag=$(jq -r '.consensus // false' "$OUTPUT_FILE")"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
