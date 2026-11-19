@@ -15,19 +15,16 @@ PEER_LAST_OUTPUT = os.environ.get("PEER_LAST_OUTPUT", "")
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE")
 
 def run_llm(prompt, model_path):
-    """اجرای مدل با llama.cpp و فعال‌سازی حداکثر سطح فکر"""
+    """اجرای مدل با llama-completion (حالت تک‌مرحله‌ای و غیرتعاملی)"""
     cmd = [
-        "./llama.cpp/llama-cli",
+        "./llama.cpp/build/bin/llama-completion",
         "-m", model_path,
         "-p", prompt,
         "-n", "4096",
         "--temp", "0.2",
         "--top-p", "0.9",
-        "--ctx-size", "8192",
-        "--reasoning", "on",
-        "--reasoning-effort", "max",
-        "--reasoning-format", "deepseek",
-        "--no-display-prompt"
+        "-c", "8192",
+        "--no-display-prompt",
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=1800)
@@ -42,7 +39,7 @@ def check_consensus(text):
     return "[CONSENSUS]" in text.upper()
 
 def build_peer_prompt(agent, task, my_prev, peer_prev, rnd):
-    """ساخت پرامپت همتا برای هر دور"""
+    """ساخت پرامپت همتا برای هر دور با راهنمای تفکر قدم‌به‌قدم"""
     base = f"""You are {agent.upper()}, one of two expert AI agents collaborating as EQUALS on the Dex-tool project.
 The project is a runtime Android app inspector using Frida (JavaScript) and ImGui (C++).
 
@@ -54,7 +51,11 @@ This is ROUND {rnd} of a peer-to-peer consensus loop."""
         return f"""{base}
 
 There is no previous output yet. This is the first round.
-Perform the task independently and thoroughly. Provide your complete analysis and any code changes.
+Before giving your final answer, think step by step:
+1. First, list all potential critical bugs or flaws you can identify in the project.
+2. For each, explain its severity and potential impact.
+3. Then, pick the single most critical one and write a complete fix with code changes.
+Show your full reasoning in the output.
 If you believe the task is fully complete and correct, end your response with the tag [CONSENSUS].
 """
 
