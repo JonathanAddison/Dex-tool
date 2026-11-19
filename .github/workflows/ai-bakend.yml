@@ -34,11 +34,11 @@ jobs:
       - name: Download Draft Model (Qwen2.5-0.5B Q4_K_M)
         run: hf download Qwen/Qwen2.5-0.5B-Instruct-GGUF --include "*q4_k_m.gguf" --local-dir ./draft
 
-      - name: Download llama.cpp (pre-built)
+      - name: Download llama.cpp (b12391 - fixes Ministral tool-call parsing)
         run: |
-          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12391/llama-b12391-bin-ubuntu-x64.tar.gz
           mkdir -p llama-bin
-          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
+          tar -xzf llama-b12391-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
 
       - name: Start llama-server with Speculative Decoding
         run: |
