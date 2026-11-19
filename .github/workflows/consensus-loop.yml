@@ -1,0 +1,55 @@
+# .github/workflows/consensus-loop.yml
+name: Peer-to-Peer Consensus Loop (7 Rounds)
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_prompt:
+        description: 'The task for the agents'
+        required: true
+        default: 'Find and fix the most critical bug in the Dex-tool project.'
+
+jobs:
+  # ---------- آماده‌سازی (کش شده) ----------
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cache models and llama.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            llama.cpp/
+          key: ${{ runner.os }}-models-llama-v1
+          # اگر کش پیدا نشد، دانلود کن
+      - name: Download Models & Build llama.cpp (if cache miss)
+        run: |
+          if [ ! -d "llama.cpp" ]; then
+            mkdir -p models
+            curl -L -o models/qwen.gguf "https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
+            curl -L -o models/glm.gguf "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q4_K_M.gguf"
+            git clone https://github.com/ggerganov/llama.cpp
+            cd llama.cpp && make
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: setup-artifacts
+          path: |
+            models/
+            llama.cpp/
+          retention-days: 1
+
+  # ---------- حلقه اصلی (۷ دور) ----------
+  consensus-loop:
+    needs: setup
+    strategy:
+      matrix:
+        round: [1, 2, 3, 4, 5, 6, 7]
+      fail-fast: false # ادامه بده حتی اگر یک دور شکست بخوره
+    uses: ./.github/workflows/peer-round.yml
+    with:
+      task_prompt: ${{ github.event.inputs.task_prompt }}
+      round_number: ${{ matrix.round }}
+    # پاس دادن خروجی دور قبل به دور فعلی
+    # (این بخش در GitHub Actions به صورت مستقیم پشتیبانی نمی‌شه و باید با یک Job میانی حل بشه)
