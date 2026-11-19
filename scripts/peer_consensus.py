@@ -78,7 +78,7 @@ def run_llm(prompt, model_path, agent):
             "-c", str(ctx),
             "--cache-type-k", "q8_0",
             "--cache-type-v", "q8_0",
-            "--flash-attn",                # بهینه‌سازی KV cache و پشتیبانی q8_0
+            "--flash-attn", "on",                # بهینه‌سازی KV cache و پشتیبانی q8_0
             "--no-display-prompt",
             "-t", "4",
             "--log-disable",
