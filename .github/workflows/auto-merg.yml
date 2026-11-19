@@ -5,6 +5,9 @@ on:
     branches:
       - dev
 
+permissions:
+  contents: write   # ← این خط کلید حل مشکل است
+
 jobs:
   merge-to-main:
     runs-on: ubuntu-latest
