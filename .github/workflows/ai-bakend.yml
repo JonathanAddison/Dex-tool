@@ -1,85 +1,108 @@
-name: AI Backend with Tools
+name: AI Backend MAX (Claude-Level)
 
 on:
   workflow_dispatch:
 
 jobs:
   run-agent:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest   # 4 vCPU, 16GB RAM, 14GB SSD
     timeout-minutes: 120
-
     steps:
-      - name: Checkout dev branch
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: dev
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.10' }
 
-      - name: Install Python dependencies
-        run: pip install flask flask-cors requests
+      - name: Install system deps (bubblewrap for sandbox)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
 
-      - name: Install huggingface-cli & download model
+      - name: Install Python deps
+        run: pip install flask flask-cors requests waitress
+
+      - name: Install HF CLI
         run: |
           curl -LsSf https://hf.co/cli/install.sh | bash -s
           echo "$HOME/.local/bin" >> $GITHUB_PATH
-          hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF \
-            --include "*Q4_K_M.gguf" \
-            --local-dir ./model
 
-      - name: Download llama.cpp server
+      - name: Download Main Model (Ministral 14B Reasoning Q4_K_M)
+        run: hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF --include "*Q4_K_M.gguf" --local-dir ./model
+
+      - name: Download Draft Model (Qwen2.5-0.5B Q4_K_M)
+        run: hf download Qwen/Qwen2.5-0.5B-Instruct-GGUF --include "*q4_k_m.gguf" --local-dir ./draft
+
+      - name: Download llama.cpp (pre-built)
         run: |
-          wget https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
           mkdir -p llama-bin
           tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
 
-      - name: Start llama-server
+      - name: Start llama-server with Speculative Decoding
         run: |
-          MODEL_FILE=$(find ./model -name "*.gguf" | head -n 1)
-          echo "📁 Model: $MODEL_FILE"
+          MAIN=$(find ./model -name "*.gguf" | head -n1)
+          DRAFT=$(find ./draft -name "*.gguf" | head -n1)
+          echo "Main: $MAIN"
+          echo "Draft: $DRAFT"
+
           nohup ./llama-bin/llama-server \
-            -m "$MODEL_FILE" \
-            --host 127.0.0.1 \
-            --port 8080 \
-            --ctx-size 8192 \
+            -m "$MAIN" \
+            --spec-draft-model "$DRAFT" \
+            --spec-draft-n-max 5 \
+            --spec-draft-n-min 2 \
+            --host 127.0.0.1 --port 8080 \
+            --ctx-size 16384 \
             --n-predict 2048 \
             --jinja \
+            --reasoning-format auto \
+            -t 4 \
+            -tb 4 \
             --parallel 1 \
             > llama.log 2>&1 &
-          echo "⏳ Waiting for llama-server to be ready..."
-          for i in $(seq 1 60); do
-            if curl -s http://127.0.0.1:8080/health > /dev/null 2>&1; then
-              echo "✅ llama-server is up after ${i}0s"
+
+          echo "⏳ Waiting for llama-server /health ..."
+          for i in $(seq 1 120); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8080/health || true)
+            if [ "$CODE" = "200" ]; then
+              echo "✅ llama-server ready after $((i*5))s"
               break
             fi
-            sleep 10
+            sleep 5
           done
-          echo "--- llama.log tail ---"
-          tail -n 30 llama.log
+          if ! curl -s http://127.0.0.1:8080/health >/dev/null; then
+            echo "❌ llama-server failed to start"; tail -n 50 llama.log; exit 1
+          fi
+          tail -n 20 llama.log
 
-      - name: Start Agent Proxy (Flask)
+      - name: Start Flask with waitress
         run: |
-          nohup python agent_server.py > agent.log 2>&1 &
-          sleep 8
-          echo "--- Agent Log ---"
-          cat agent.log
-          echo "--- Health check ---"
-          curl -s http://127.0.0.1:5000/health || echo "Flask not responding"
+          nohup python -c "
+           from waitress import serve
+           from agent_server import app
+           serve(app, host='0.0.0.0', port=5000, threads=8)
+          " > agent.log 2>&1 &
+          sleep 5
+          curl -sf http://127.0.0.1:5000/health | tee /dev/stderr
+          echo " ✅ Flask ready"
 
-      - name: Expose via localtunnel
+      - name: Expose via Cloudflare Quick Tunnel
         run: |
-          npm install -g localtunnel
-          nohup lt --port 5000 --print-requests > tunnel.log 2>&1 &
-          sleep 8
-          TUNNEL_URL=$(grep -o 'https://[^ ]*\.loca\.lt' tunnel.log | head -n 1)
-          echo "🌐 TUNNEL URL: $TUNNEL_URL"
-          echo "TUNNEL_URL=$TUNNEL_URL" >> $GITHUB_ENV
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
+          chmod +x cloudflared
+          nohup ./cloudflared tunnel --url http://localhost:5000 --no-autoupdate > tunnel.log 2>&1 &
+          sleep 12
+          URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n1)
+          if [ -z "$URL" ]; then
+            echo "❌ Tunnel URL not found"; cat tunnel.log; exit 1
+          fi
+          echo "🌐 TUNNEL URL: $URL"
+          echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
       - name: Keep alive
         run: |
-          echo "🚀 API URL for frontend: ${{ env.TUNNEL_URL }}"
-          echo "این آدرس را در فیلد API صفحه چت پیست کن."
+          echo "🚀 API Endpoint: ${{ env.TUNNEL_URL }}"
+          echo "📋 Health:      ${{ env.TUNNEL_URL }}/health"
+          echo "💬 Chat:        ${{ env.TUNNEL_URL }}/v1/chat/completions"
           sleep 3600
