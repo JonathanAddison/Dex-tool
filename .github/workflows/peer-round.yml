@@ -58,10 +58,10 @@ jobs:
           rm llama-b12230-bin-ubuntu-x64.tar.gz
           chmod +x llama.cpp/build/bin/llama-completion
 
-      - name: Gather project source code
+      - name: Gather ALL project source code (no byte cap)
         run: |
           python scripts/gather_code.py > /tmp/code_context.txt
-          echo "Code context: $(wc -c < /tmp/code_context.txt) bytes"
+          echo "Gathered: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run Qwen
         id: run
@@ -117,10 +117,10 @@ jobs:
           rm llama-b12230-bin-ubuntu-x64.tar.gz
           chmod +x llama.cpp/build/bin/llama-completion
 
-      - name: Gather project source code
+      - name: Gather ALL project source code (no byte cap)
         run: |
           python scripts/gather_code.py > /tmp/code_context.txt
-          echo "Code context: $(wc -c < /tmp/code_context.txt) bytes"
+          echo "Gathered: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run GLM
         id: run
