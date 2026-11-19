@@ -1,0 +1,93 @@
+# .github/workflows/peer-round.yml
+name: Peer Consensus Round
+
+on:
+  workflow_call:
+    inputs:
+      task_prompt:
+        required: true
+        type: string
+      round_number:
+        required: true
+        type: number
+    outputs:
+      qwen_output:
+        description: "Qwen's output for this round"
+        value: ${{ jobs.run-qwen.outputs.output }}
+      glm_output:
+        description: "GLM's output for this round"
+        value: ${{ jobs.run-glm.outputs.output }}
+      qwen_consensus:
+        description: "Qwen's consensus flag"
+        value: ${{ jobs.run-qwen.outputs.consensus }}
+      glm_consensus:
+        description: "GLM's consensus flag"
+        value: ${{ jobs.run-glm.outputs.consensus }}
+
+jobs:
+  run-qwen:
+    runs-on: ubuntu-latest
+    outputs:
+      output: ${{ steps.run.outputs.agent_output }}
+      consensus: ${{ steps.run.outputs.consensus_flag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore models and llama.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            llama.cpp/
+          key: ${{ runner.os }}-models-llama-v1
+      - name: Run Qwen
+        id: run
+        env:
+          MODEL_PATH: models/qwen.gguf
+          AGENT_NAME: qwen
+          ROUND: ${{ inputs.round_number }}
+          TASK_PROMPT: ${{ inputs.task_prompt }}
+          MY_LAST_OUTPUT: ${{ inputs.round_number > 1 && needs.previous.outputs.qwen_output || '' }}
+          PEER_LAST_OUTPUT: ${{ inputs.round_number > 1 && needs.previous.outputs.glm_output || '' }}
+          OUTPUT_FILE: results/qwen_round${{ inputs.round_number }}.json
+        run: |
+          python scripts/peer_consensus.py
+          # استخراج خروجی و وضعیت اجماع برای پاس دادن به دور بعد
+          echo "agent_output=$(jq -r '.output' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: round${{ inputs.round_number }}-qwen
+          path: results/
+
+  run-glm:
+    runs-on: ubuntu-latest
+    outputs:
+      output: ${{ steps.run.outputs.agent_output }}
+      consensus: ${{ steps.run.outputs.consensus_flag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore models and llama.cpp
+        uses: actions/cache@v4
+        with:
+          path: |
+            models/
+            llama.cpp/
+          key: ${{ runner.os }}-models-llama-v1
+      - name: Run GLM
+        id: run
+        env:
+          MODEL_PATH: models/glm.gguf
+          AGENT_NAME: glm
+          ROUND: ${{ inputs.round_number }}
+          TASK_PROMPT: ${{ inputs.task_prompt }}
+          MY_LAST_OUTPUT: ${{ inputs.round_number > 1 && needs.previous.outputs.glm_output || '' }}
+          PEER_LAST_OUTPUT: ${{ inputs.round_number > 1 && needs.previous.outputs.qwen_output || '' }}
+          OUTPUT_FILE: results/glm_round${{ inputs.round_number }}.json
+        run: |
+          python scripts/peer_consensus.py
+          echo "agent_output=$(jq -r '.output' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: round${{ inputs.round_number }}-glm
+          path: results/
