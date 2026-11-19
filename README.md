@@ -1,6 +1,6 @@
 # Dex-tool
 
-i add ai to repo
+
 ## What this is
 
 Dex-tool is a runtime inspector for Android apps: a Frida-GumJS agent
