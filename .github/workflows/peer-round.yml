@@ -41,23 +41,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore models and llama.cpp
+      - name: Restore models and llama.cpp binary
         uses: actions/cache@v4
         id: cache
         with:
           path: |
             models/
             llama.cpp/
-          key: ${{ runner.os }}-models-llama-v2
+          key: Linux-models-llama-v3
 
-      - name: Download Qwen & Build llama.cpp (if cache miss)
+      - name: Download Qwen model & prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p models
+          mkdir -p models llama.cpp/build/bin
+          # دانلود مدل Qwen
           curl -L --retry 3 -o models/qwen.gguf \
             "https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-          git clone https://github.com/ggerganov/llama.cpp
-          cd llama.cpp && make
+          # دانلود باینری آماده llama.cpp برای Ubuntu x64 (CPU)
+          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
+          rm llama-b12230-bin-ubuntu-x64.tar.gz
+          chmod +x llama.cpp/build/bin/llama-completion
 
       - name: Run Qwen
         id: run
@@ -71,7 +75,9 @@ jobs:
           OUTPUT_FILE: results/qwen_round${{ inputs.round_number }}.json
         run: |
           python scripts/peer_consensus.py
-          echo "agent_output=$(jq -r '.output' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          echo "agent_output<<EOF" >> $GITHUB_OUTPUT
+          jq -r '.output' $OUTPUT_FILE >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
@@ -87,23 +93,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore models and llama.cpp
+      - name: Restore models and llama.cpp binary
         uses: actions/cache@v4
         id: cache
         with:
           path: |
             models/
             llama.cpp/
-          key: ${{ runner.os }}-models-llama-v2
+          key: Linux-models-llama-v3
 
-      - name: Download GLM & Build llama.cpp (if cache miss)
+      - name: Download GLM model & prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p models
+          mkdir -p models llama.cpp/build/bin
+          # دانلود مدل GLM (نسخه Q3_K_M برای جا شدن در سقف کش 10 گیگ)
           curl -L --retry 3 -o models/glm.gguf \
-            "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q4_K_M.gguf"
-          git clone https://github.com/ggerganov/llama.cpp
-          cd llama.cpp && make
+            "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q3_K_M.gguf"
+          # دانلود باینری آماده llama.cpp
+          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
+          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
+          rm llama-b12230-bin-ubuntu-x64.tar.gz
+          chmod +x llama.cpp/build/bin/llama-completion
 
       - name: Run GLM
         id: run
@@ -117,7 +127,9 @@ jobs:
           OUTPUT_FILE: results/glm_round${{ inputs.round_number }}.json
         run: |
           python scripts/peer_consensus.py
-          echo "agent_output=$(jq -r '.output' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          echo "agent_output<<EOF" >> $GITHUB_OUTPUT
+          jq -r '.output' $OUTPUT_FILE >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
