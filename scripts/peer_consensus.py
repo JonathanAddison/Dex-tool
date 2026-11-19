@@ -17,9 +17,10 @@ CODE_CONTEXT_FILE = os.environ.get("CODE_CONTEXT_FILE", "/tmp/code_context.txt")
 
 # حداکثر context قابل استفاده (بر اساس مدل)
 MAX_CTX = {
-    "qwen": 32768,     # Qwen2.5-Coder-7B GGUF سقف 32K داره
-    "glm": 65536,      # GLM-4-9B با KV cache q8_0 تا 64K قابل اجراست
+    "qwen": 131072,  # Qwen2.5-Coder-7B -> 128K
+    "glm": 131072,   # GLM-4-9B -> 128K
 }
+
 
 def load_code_context():
     try:
@@ -28,9 +29,11 @@ def load_code_context():
     except FileNotFoundError:
         return "(No code context available)"
 
+
 def extract_file_requests(text):
     """مدل می‌تونه [NEED_FILE: path] بنویسه تا فایل کامل رو دریافت کنه"""
     return re.findall(r'\[NEED_FILE:\s*([^\]]+)\]', text)
+
 
 def fetch_requested_files(requests):
     """فایل‌های درخواستی مدل رو کامل می‌خونه"""
@@ -44,18 +47,23 @@ def fetch_requested_files(requests):
             chunks.append(f"--- FILE: {path} (ERROR: {e}) ---\n")
     return "\n".join(chunks)
 
+
 def clean_output(text):
-    text = re.sub(r'\n*>?\s*EOF\s+by\s+(the\s+)?user.*$', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'\n*>?\s*EOF\s+by\s+(the\s+)?user.*$', '', text,
+                  flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r'<\|im_end\|>.*$', '', text, flags=re.DOTALL)
     text = re.sub(r'<\|endoftext\|>.*$', '', text, flags=re.DOTALL)
-    text = re.sub(r'\n*(Human|User|Assistant)\s*:.*$', '', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'\n*(Human|User|Assistant)\s*:.*$', '', text,
+                  flags=re.IGNORECASE | re.DOTALL)
     return text.strip()
+
 
 def run_llm(prompt, model_path, agent):
     ctx = MAX_CTX.get(agent, 32768)
-    
+
     # نوشتن prompt در یک فایل موقت برای دور زدن محدودیت طول آرگومان
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False,
+                                     encoding='utf-8') as f:
         f.write(prompt)
         prompt_file = f.name
 
@@ -63,34 +71,37 @@ def run_llm(prompt, model_path, agent):
         cmd = [
             "./llama.cpp/build/bin/llama-completion",
             "-m", model_path,
-            "-f", prompt_file,             # <--- به جای -p از -f استفاده می‌کنیم
+            "-f", prompt_file,             # به جای -p از -f استفاده می‌کنیم
             "-n", "4096",
             "--temp", "0.2",
             "--top-p", "0.9",
             "-c", str(ctx),
             "--cache-type-k", "q8_0",
             "--cache-type-v", "q8_0",
+            "--flash-attn",                # بهینه‌سازی KV cache و پشتیبانی q8_0
             "--no-display-prompt",
             "-t", "4",
             "--log-disable",
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=10800)
+        result = subprocess.run(cmd, capture_output=True, text=True,
+                                check=True, timeout=10800)
         return clean_output(result.stdout)
     except subprocess.TimeoutExpired:
         return "[ERROR: Model timed out]"
     except subprocess.CalledProcessError as e:
         return f"[ERROR: {e.stderr[:500]}]"
     finally:
-        # پاک کردن فایل موقت بعد از اجرا
         try:
             os.unlink(prompt_file)
         except OSError:
             pass
 
+
 def check_consensus(text, rnd):
     if rnd < 2:
         return False
     return "[CONSENSUS]" in text.upper()
+
 
 def build_prompt(agent, task, my_prev, peer_prev, rnd, code):
     base = f"""You are {agent.upper()}, one of two expert AI agents collaborating as EQUALS on the Dex-tool project.
@@ -124,11 +135,9 @@ Provide:
 
 --- YOUR PREVIOUS OUTPUT (Round {rnd-1}) ---
 {my_prev}
--------------------------------------------------------
 
 --- YOUR PEER'S PREVIOUS OUTPUT (Round {rnd-1}) ---
 {peer_prev}
--------------------------------------------------------
 
 AS A PEER, DO THIS:
 1. Validate your peer's claimed bug against the ACTUAL source code above. Does it really exist?
@@ -138,14 +147,17 @@ AS A PEER, DO THIS:
 5. ONLY if ALL hallucinated content is removed and the fix is genuinely correct, end with [CONSENSUS] on its own line. Otherwise, do NOT use that tag.
 """
 
+
 def main():
     if not MODEL_PATH or not AGENT_NAME:
         print("Missing MODEL_PATH or AGENT_NAME")
         sys.exit(1)
 
     code = load_code_context()
-    prompt = build_prompt(AGENT_NAME, TASK_PROMPT, MY_LAST_OUTPUT, PEER_LAST_OUTPUT, ROUND, code)
-    print(f"🚀 {AGENT_NAME.upper()} Round {ROUND} | prompt={len(prompt)} chars | code={len(code)} chars")
+    prompt = build_prompt(AGENT_NAME, TASK_PROMPT, MY_LAST_OUTPUT,
+                          PEER_LAST_OUTPUT, ROUND, code)
+    print(f"🚀 {AGENT_NAME.upper()} Round {ROUND} | prompt={len(prompt)} chars | "
+          f"code={len(code)} chars")
 
     output = run_llm(prompt, MODEL_PATH, AGENT_NAME)
     consensus = check_consensus(output, ROUND)
@@ -153,7 +165,7 @@ def main():
     # درخواست فایل: اگه مدل فایلی خواست، توی دور بعد تزریق می‌شود
     requested = extract_file_requests(output)
     if requested:
-        print(f"📂 Model requested files: {requested}")
+        print(f"📎 Model requested files: {requested}")
 
     result = {
         "agent": AGENT_NAME,
@@ -162,13 +174,16 @@ def main():
         "consensus": consensus,
         "requested_files": requested,
     }
+
     os.makedirs(os.path.dirname(OUTPUT_FILE), exist_ok=True)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2, ensure_ascii=False)
 
     print(f"✅ {AGENT_NAME.upper()} finished. Consensus={consensus}")
+
     if "[ERROR" in output:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()
