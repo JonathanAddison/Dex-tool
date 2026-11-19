@@ -29,6 +29,7 @@ on:
         value: ${{ jobs.run-glm.outputs.consensus_flag }}
 
 jobs:
+  # ============ Qwen Job (Runner اختصاصی 4C/16GB) ============
   run-qwen:
     runs-on: ubuntu-latest
     outputs:
@@ -37,14 +38,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore models and llama.cpp binary
+      - name: Restore Qwen model + binary
         uses: actions/cache@v4
         id: cache
         with:
           path: |
-            models/
+            models/qwen.gguf
             llama.cpp/
-          key: Linux-models-llama-v3
+          key: Linux-qwen-v4
 
       - name: Download Qwen + prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -59,29 +60,8 @@ jobs:
 
       - name: Gather project source code
         run: |
-          : > /tmp/code_context.txt
-          total=0
-          find . -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.h" -o -name "*.hpp" -o -name "*.js" -o -name "*.py" -o -name "*.json" \) \
-            -not -path "./llama.cpp/*" -not -path "./models/*" -not -path "./.git/*" \
-            -not -path "./scripts/*" -not -path "./results/*" \
-            | sort > /tmp/filelist.txt
-          echo "=== FILES IN REPO ===" >> /tmp/code_context.txt
-          cat /tmp/filelist.txt >> /tmp/code_context.txt
-          echo "" >> /tmp/code_context.txt
-          while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            size=$(wc -c < "$f")
-            if [ $((total + size)) -lt 18000 ]; then
-              echo "=== FILE: $f ===" >> /tmp/code_context.txt
-              cat "$f" >> /tmp/code_context.txt
-              echo "" >> /tmp/code_context.txt
-              total=$((total + size))
-            else
-              echo "(... file skipped: size budget exceeded ...)" >> /tmp/code_context.txt
-              break
-            fi
-          done < /tmp/filelist.txt
-          echo "Code context size: $(wc -c < /tmp/code_context.txt) bytes"
+          python scripts/gather_code.py > /tmp/code_context.txt
+          echo "Code context: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run Qwen
         id: run
@@ -96,16 +76,19 @@ jobs:
           CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
           python scripts/peer_consensus.py
-          echo "agent_output<<EOF" >> $GITHUB_OUTPUT
-          jq -r '.output' $OUTPUT_FILE >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          {
+            echo "agent_output<<OUTPUT_EOF"
+            jq -r '.output' "$OUTPUT_FILE"
+            echo "OUTPUT_EOF"
+            echo "consensus_flag=$(jq -r '.consensus' "$OUTPUT_FILE")"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
           name: round${{ inputs.round_number }}-qwen
           path: results/
 
+  # ============ GLM Job (Runner اختصاصی 4C/16GB) ============
   run-glm:
     runs-on: ubuntu-latest
     outputs:
@@ -114,14 +97,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore models and llama.cpp binary
+      - name: Restore GLM model + binary
         uses: actions/cache@v4
         id: cache
         with:
           path: |
-            models/
+            models/glm.gguf
             llama.cpp/
-          key: Linux-models-llama-v3
+          key: Linux-glm-v4
 
       - name: Download GLM + prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
@@ -136,29 +119,8 @@ jobs:
 
       - name: Gather project source code
         run: |
-          : > /tmp/code_context.txt
-          total=0
-          find . -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.h" -o -name "*.hpp" -o -name "*.js" -o -name "*.py" -o -name "*.json" \) \
-            -not -path "./llama.cpp/*" -not -path "./models/*" -not -path "./.git/*" \
-            -not -path "./scripts/*" -not -path "./results/*" \
-            | sort > /tmp/filelist.txt
-          echo "=== FILES IN REPO ===" >> /tmp/code_context.txt
-          cat /tmp/filelist.txt >> /tmp/code_context.txt
-          echo "" >> /tmp/code_context.txt
-          while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            size=$(wc -c < "$f")
-            if [ $((total + size)) -lt 18000 ]; then
-              echo "=== FILE: $f ===" >> /tmp/code_context.txt
-              cat "$f" >> /tmp/code_context.txt
-              echo "" >> /tmp/code_context.txt
-              total=$((total + size))
-            else
-              echo "(... file skipped: size budget exceeded ...)" >> /tmp/code_context.txt
-              break
-            fi
-          done < /tmp/filelist.txt
-          echo "Code context size: $(wc -c < /tmp/code_context.txt) bytes"
+          python scripts/gather_code.py > /tmp/code_context.txt
+          echo "Code context: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run GLM
         id: run
@@ -173,10 +135,12 @@ jobs:
           CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
           python scripts/peer_consensus.py
-          echo "agent_output<<EOF" >> $GITHUB_OUTPUT
-          jq -r '.output' $OUTPUT_FILE >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "consensus_flag=$(jq -r '.consensus' $OUTPUT_FILE)" >> $GITHUB_OUTPUT
+          {
+            echo "agent_output<<OUTPUT_EOF"
+            jq -r '.output' "$OUTPUT_FILE"
+            echo "OUTPUT_EOF"
+            echo "consensus_flag=$(jq -r '.consensus' "$OUTPUT_FILE")"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
