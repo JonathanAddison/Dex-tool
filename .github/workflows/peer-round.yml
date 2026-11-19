@@ -20,16 +20,12 @@ on:
         default: ""
     outputs:
       qwen_output:
-        description: "Qwen's output for this round"
         value: ${{ jobs.run-qwen.outputs.agent_output }}
       glm_output:
-        description: "GLM's output for this round"
         value: ${{ jobs.run-glm.outputs.agent_output }}
       qwen_consensus:
-        description: "Qwen's consensus flag"
         value: ${{ jobs.run-qwen.outputs.consensus_flag }}
       glm_consensus:
-        description: "GLM's consensus flag"
         value: ${{ jobs.run-glm.outputs.consensus_flag }}
 
 jobs:
@@ -50,18 +46,42 @@ jobs:
             llama.cpp/
           key: Linux-models-llama-v3
 
-      - name: Download Qwen model & prebuilt llama.cpp (if cache miss)
+      - name: Download Qwen + prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p models llama.cpp/build/bin
-          # دانلود مدل Qwen
           curl -L --retry 3 -o models/qwen.gguf \
             "https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-          # دانلود باینری آماده llama.cpp برای Ubuntu x64 (CPU)
           wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
           tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
           rm llama-b12230-bin-ubuntu-x64.tar.gz
           chmod +x llama.cpp/build/bin/llama-completion
+
+      - name: Gather project source code
+        run: |
+          : > /tmp/code_context.txt
+          total=0
+          find . -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.h" -o -name "*.hpp" -o -name "*.js" -o -name "*.py" -o -name "*.json" \) \
+            -not -path "./llama.cpp/*" -not -path "./models/*" -not -path "./.git/*" \
+            -not -path "./scripts/*" -not -path "./results/*" \
+            | sort > /tmp/filelist.txt
+          echo "=== FILES IN REPO ===" >> /tmp/code_context.txt
+          cat /tmp/filelist.txt >> /tmp/code_context.txt
+          echo "" >> /tmp/code_context.txt
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f")
+            if [ $((total + size)) -lt 18000 ]; then
+              echo "=== FILE: $f ===" >> /tmp/code_context.txt
+              cat "$f" >> /tmp/code_context.txt
+              echo "" >> /tmp/code_context.txt
+              total=$((total + size))
+            else
+              echo "(... file skipped: size budget exceeded ...)" >> /tmp/code_context.txt
+              break
+            fi
+          done < /tmp/filelist.txt
+          echo "Code context size: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run Qwen
         id: run
@@ -73,6 +93,7 @@ jobs:
           MY_LAST_OUTPUT: ${{ inputs.qwen_prev }}
           PEER_LAST_OUTPUT: ${{ inputs.glm_prev }}
           OUTPUT_FILE: results/qwen_round${{ inputs.round_number }}.json
+          CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
           python scripts/peer_consensus.py
           echo "agent_output<<EOF" >> $GITHUB_OUTPUT
@@ -102,18 +123,42 @@ jobs:
             llama.cpp/
           key: Linux-models-llama-v3
 
-      - name: Download GLM model & prebuilt llama.cpp (if cache miss)
+      - name: Download GLM + prebuilt llama.cpp (if cache miss)
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p models llama.cpp/build/bin
-          # دانلود مدل GLM (نسخه Q3_K_M برای جا شدن در سقف کش 10 گیگ)
           curl -L --retry 3 -o models/glm.gguf \
             "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q3_K_M.gguf"
-          # دانلود باینری آماده llama.cpp
           wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
           tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
           rm llama-b12230-bin-ubuntu-x64.tar.gz
           chmod +x llama.cpp/build/bin/llama-completion
+
+      - name: Gather project source code
+        run: |
+          : > /tmp/code_context.txt
+          total=0
+          find . -type f \( -name "*.cpp" -o -name "*.cc" -o -name "*.h" -o -name "*.hpp" -o -name "*.js" -o -name "*.py" -o -name "*.json" \) \
+            -not -path "./llama.cpp/*" -not -path "./models/*" -not -path "./.git/*" \
+            -not -path "./scripts/*" -not -path "./results/*" \
+            | sort > /tmp/filelist.txt
+          echo "=== FILES IN REPO ===" >> /tmp/code_context.txt
+          cat /tmp/filelist.txt >> /tmp/code_context.txt
+          echo "" >> /tmp/code_context.txt
+          while IFS= read -r f; do
+            [ -f "$f" ] || continue
+            size=$(wc -c < "$f")
+            if [ $((total + size)) -lt 18000 ]; then
+              echo "=== FILE: $f ===" >> /tmp/code_context.txt
+              cat "$f" >> /tmp/code_context.txt
+              echo "" >> /tmp/code_context.txt
+              total=$((total + size))
+            else
+              echo "(... file skipped: size budget exceeded ...)" >> /tmp/code_context.txt
+              break
+            fi
+          done < /tmp/filelist.txt
+          echo "Code context size: $(wc -c < /tmp/code_context.txt) bytes"
 
       - name: Run GLM
         id: run
@@ -125,6 +170,7 @@ jobs:
           MY_LAST_OUTPUT: ${{ inputs.glm_prev }}
           PEER_LAST_OUTPUT: ${{ inputs.qwen_prev }}
           OUTPUT_FILE: results/glm_round${{ inputs.round_number }}.json
+          CODE_CONTEXT_FILE: /tmp/code_context.txt
         run: |
           python scripts/peer_consensus.py
           echo "agent_output<<EOF" >> $GITHUB_OUTPUT
