@@ -29,34 +29,36 @@ jobs:
           curl -LsSf https://hf.co/cli/install.sh | bash -s
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      # ==================== ساخت فایل‌ها (بدون indent) ====================
-      - name: Generate tool_registry.py
+      - name: Write all project files
+        shell: python
         run: |
-          cat > tool_registry.py << 'PYEOF'
-          import json, os, importlib.util
+          import os
 
-          class ToolRegistry:
-              def __init__(self, repo_root, max_native=16):
-                  self.repo_root = repo_root
-                  self.max_native = max_native
-                  self.tools = {}
-                  self.skills = {}
-                  self.plugins = {}
-                  self.active_skill = None
-                  self.base_tools = set()
+          # ---- tool_registry.py ----
+          open('tool_registry.py', 'w', encoding='utf-8').write('''import json, os, importlib.util
 
-              def register_tool(self, schema, func, category="general", base=False):
-                  name = schema["function"]["name"]
-                  self.tools[name] = {"schema": schema, "func": func, "category": category}
-                  if base:
+class ToolRegistry:
+    def __init__(self, repo_root, max_native=16):
+        self.repo_root = repo_root
+        self.max_native = max_native
+        self.tools = {}
+        self.skills = {}
+        self.plugins = {}
+        self.active_skill = None
+        self.base_tools = set()
+
+    def register_tool(self, schema, func, category="general", base=False):
+        name = schema["function"]["name"]
+        self.tools[name] = {"schema": schema, "func": func, "category": category}
+        if base:
             self.base_tools.add(name)
 
-              def load_skill(self, skill_dir):
-                  path = os.path.join(skill_dir, "SKILL.md")
-                  if not os.path.isfile(path): return
-                  content = open(path, encoding="utf-8").read()
-                  meta, body = {}, content
-                  if content.startswith("---"):
+    def load_skill(self, skill_dir):
+        path = os.path.join(skill_dir, "SKILL.md")
+        if not os.path.isfile(path): return
+        content = open(path, encoding="utf-8").read()
+        meta, body = {}, content
+        if content.startswith("---"):
             parts = content.split("---", 2)
             if len(parts) >= 3:
                 for line in parts[1].strip().splitlines():
@@ -64,361 +66,303 @@ jobs:
                         k, v = line.split(":", 1)
                         meta[k.strip()] = v.strip()
                 body = parts[2].strip()
-                  name = meta.get("name", os.path.basename(skill_dir))
-                  self.skills[name] = {
+        name = meta.get("name", os.path.basename(skill_dir))
+        self.skills[name] = {
             "description": meta.get("description", ""),
             "tools": [t.strip() for t in meta.get("allowed-tools", "").split(",") if t.strip()],
             "prompt": body, "path": path
-                  }
+        }
 
-              def load_all_skills(self, base_dir):
-                  if not os.path.isdir(base_dir): return
-                  for e in sorted(os.listdir(base_dir)):
+    def load_all_skills(self, base_dir):
+        if not os.path.isdir(base_dir): return
+        for e in sorted(os.listdir(base_dir)):
             full = os.path.join(base_dir, e)
             if os.path.isdir(full): self.load_skill(full)
 
-              def activate_skill(self, name):
-                  if name not in self.skills: return None
-                  self.active_skill = name
-                  return self.skills[name]
+    def activate_skill(self, name):
+        if name not in self.skills: return None
+        self.active_skill = name
+        return self.skills[name]
 
-              def deactivate_skill(self): self.active_skill = None
+    def deactivate_skill(self): self.active_skill = None
 
-              def load_plugin(self, plugin_dir):
-                  manifest = os.path.join(plugin_dir, ".claude-plugin", "plugin.json")
-                  if not os.path.isfile(manifest): return
-                  meta = json.load(open(manifest, encoding="utf-8"))
-                  name = meta.get("name", os.path.basename(plugin_dir))
-                  py = os.path.join(plugin_dir, "plugin.py")
-                  if not os.path.isfile(py): return
-                  spec = importlib.util.spec_from_file_location(name, py)
-                  mod = importlib.util.module_from_spec(spec)
-                  spec.loader.exec_module(mod)
-                  if hasattr(mod, "register"): mod.register(self)
-                  self.plugins[name] = {"path": plugin_dir, "meta": meta}
+    def load_plugin(self, plugin_dir):
+        manifest = os.path.join(plugin_dir, ".claude-plugin", "plugin.json")
+        if not os.path.isfile(manifest): return
+        meta = json.load(open(manifest, encoding="utf-8"))
+        name = meta.get("name", os.path.basename(plugin_dir))
+        py = os.path.join(plugin_dir, "plugin.py")
+        if not os.path.isfile(py): return
+        spec = importlib.util.spec_from_file_location(name, py)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        if hasattr(mod, "register"): mod.register(self)
+        self.plugins[name] = {"path": plugin_dir, "meta": meta}
 
-              def load_all_plugins(self, base_dir):
-                  if not os.path.isdir(base_dir): return
-                  for e in sorted(os.listdir(base_dir)):
+    def load_all_plugins(self, base_dir):
+        if not os.path.isdir(base_dir): return
+        for e in sorted(os.listdir(base_dir)):
             full = os.path.join(base_dir, e)
             if os.path.isdir(full): self.load_plugin(full)
 
-              def get_active_schemas(self):
-                  base = [self.tools[n]["schema"] for n in self.base_tools if n in self.tools]
-                  if self.active_skill and self.active_skill in self.skills:
+    def get_active_schemas(self):
+        base = [self.tools[n]["schema"] for n in self.base_tools if n in self.tools]
+        if self.active_skill and self.active_skill in self.skills:
             extra = [self.tools[t]["schema"] for t in self.skills[self.active_skill]["tools"] if t in self.tools]
             combined = extra + [s for s in base if s not in extra]
             return combined[:self.max_native]
-                  return base[:self.max_native]
+        return base[:self.max_native]
 
-              def get_skill_prompt(self):
-                  if self.active_skill and self.active_skill in self.skills:
+    def get_skill_prompt(self):
+        if self.active_skill and self.active_skill in self.skills:
             return self.skills[self.active_skill]["prompt"]
-                  return None
+        return None
 
-              def execute(self, name, args):
-                  if name not in self.tools: return f"ابزار ناشناخته: {name}"
-                  try: return self.tools[name]["func"](args)
-                  except Exception as e: return f"خطا در {name}: {e}"
-          PYEOF
+    def execute(self, name, args):
+        if name not in self.tools: return "unknown tool: " + name
+        try: return self.tools[name]["func"](args)
+        except Exception as e: return "error in " + name + ": " + str(e)
+''')
 
-      - name: Generate builtin_tools.py
-        run: |
-          cat > builtin_tools.py << 'PYEOF'
-          import os, subprocess, json, hashlib, base64, re, glob, shutil
+          # ---- builtin_tools.py ----
+          open('builtin_tools.py', 'w', encoding='utf-8').write('''import os, subprocess, json, hashlib, base64, re, glob, shutil
 
-          def _run(cmd, timeout=60, cwd=None):
-              try:
-                  r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
-                  return (r.stdout + r.stderr).strip()[:6000] or "(بدون خروجی)"
-              except subprocess.TimeoutExpired: return f"⏱️ timeout بعد از {timeout}s"
-              except Exception as e: return f"خطا: {e}"
+def _run(cmd, timeout=60, cwd=None):
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        return (r.stdout + r.stderr).strip()[:6000] or "(no output)"
+    except subprocess.TimeoutExpired: return "timeout after " + str(timeout) + "s"
+    except Exception as e: return "error: " + str(e)
 
-          def _safe(root, p):
-              if not p: return root
-              full = os.path.realpath(os.path.join(root, p))
-              return full if full.startswith(root) else None
+def _safe(root, p):
+    if not p: return root
+    full = os.path.realpath(os.path.join(root, p))
+    return full if full.startswith(root) else None
 
-          def register_builtin(reg, R):
-              def list_files(a):
-                  full = _safe(R, a.get("path", ""))
-                  if not full or not os.path.isdir(full): return "مسیر نامعتبر."
-                  items = [e + ("/" if os.path.isdir(os.path.join(full,e)) else "") for e in sorted(os.listdir(full)) if not e.startswith(".git")]
-                  return "\n".join(items[:150]) or "(خالی)"
+def register_builtin(reg, R):
+    def list_files(a):
+        full = _safe(R, a.get("path", ""))
+        if not full or not os.path.isdir(full): return "invalid path"
+        items = [e + ("/" if os.path.isdir(os.path.join(full,e)) else "") for e in sorted(os.listdir(full)) if not e.startswith(".git")]
+        return "\\n".join(items[:150]) or "(empty)"
 
-              def read_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full or not os.path.isfile(full): return "فایل یافت نشد."
-                  lines = open(full, encoding="utf-8", errors="ignore").read().splitlines()
-                  off = max(0, a.get("offset", 1) - 1)
-                  return "\n".join(f"{off+i+1:>5}| {l}" for i,l in enumerate(lines[off:off+(a.get("limit") or 400)]))[:15000]
+    def read_file(a):
+        full = _safe(R, a.get("path"))
+        if not full or not os.path.isfile(full): return "file not found"
+        lines = open(full, encoding="utf-8", errors="ignore").read().splitlines()
+        off = max(0, a.get("offset", 1) - 1)
+        lim = a.get("limit") or 400
+        return "\\n".join("{:>5}| {}".format(off+i+1, l) for i,l in enumerate(lines[off:off+lim]))[:15000]
 
-              def write_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full: return "مسیر نامعتبر."
-                  if os.path.dirname(full): os.makedirs(os.path.dirname(full), exist_ok=True)
-                  open(full, "w", encoding="utf-8").write(a.get("content",""))
-                  return f"✅ نوشته شد: {a.get('path')}"
+    def write_file(a):
+        full = _safe(R, a.get("path"))
+        if not full: return "invalid path"
+        if os.path.dirname(full): os.makedirs(os.path.dirname(full), exist_ok=True)
+        open(full, "w", encoding="utf-8").write(a.get("content",""))
+        return "wrote: " + a.get("path", "")
 
-              def edit_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full or not os.path.isfile(full): return "فایل یافت نشد."
-                  c = open(full, encoding="utf-8", errors="ignore").read()
-                  old, new = a.get("old_string",""), a.get("new_string","")
-                  if c.count(old) != 1: return f"old_string باید یکتا باشد (count={c.count(old)})"
-                  open(full, "w", encoding="utf-8").write(c.replace(old, new, 1))
-                  return f"✅ ویرایش شد: {a.get('path')}"
+    def edit_file(a):
+        full = _safe(R, a.get("path"))
+        if not full or not os.path.isfile(full): return "file not found"
+        c = open(full, encoding="utf-8", errors="ignore").read()
+        old, new = a.get("old_string",""), a.get("new_string","")
+        if c.count(old) != 1: return "old_string must be unique (count={})".format(c.count(old))
+        open(full, "w", encoding="utf-8").write(c.replace(old, new, 1))
+        return "edited: " + a.get("path", "")
 
-              def append_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full: return "مسیر نامعتبر."
-                  open(full, "a", encoding="utf-8").write(a.get("content",""))
-                  return "✅ الحاق شد."
+    def append_file(a):
+        full = _safe(R, a.get("path"))
+        if not full: return "invalid path"
+        open(full, "a", encoding="utf-8").write(a.get("content",""))
+        return "appended"
 
-              def delete_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full or not os.path.isfile(full): return "فایل یافت نشد."
-                  os.remove(full); return "✅ حذف شد."
+    def delete_file(a):
+        full = _safe(R, a.get("path"))
+        if not full or not os.path.isfile(full): return "file not found"
+        os.remove(full); return "deleted"
 
-              def move_file(a):
-                  s, d = _safe(R, a.get("src")), _safe(R, a.get("dst"))
-                  if not s or not d: return "مسیر نامعتبر."
-                  shutil.move(s, d); return "✅ منتقل شد."
+    def move_file(a):
+        s, d = _safe(R, a.get("src")), _safe(R, a.get("dst"))
+        if not s or not d: return "invalid path"
+        shutil.move(s, d); return "moved"
 
-              def copy_file(a):
-                  s, d = _safe(R, a.get("src")), _safe(R, a.get("dst"))
-                  if not s or not d: return "مسیر نامعتبر."
-                  shutil.copy2(s, d); return "✅ کپی شد."
+    def copy_file(a):
+        s, d = _safe(R, a.get("src")), _safe(R, a.get("dst"))
+        if not s or not d: return "invalid path"
+        shutil.copy2(s, d); return "copied"
 
-              def file_info(a):
-                  full = _safe(R, a.get("path"))
-                  if not full or not os.path.exists(full): return "یافت نشد."
-                  st = os.stat(full)
-                  return json.dumps({"size": st.st_size, "is_dir": os.path.isdir(full)})
+    def file_info(a):
+        full = _safe(R, a.get("path"))
+        if not full or not os.path.exists(full): return "not found"
+        st = os.stat(full)
+        return json.dumps({"size": st.st_size, "is_dir": os.path.isdir(full)})
 
-              def create_directory(a):
-                  full = _safe(R, a.get("path"))
-                  if not full: return "مسیر نامعتبر."
-                  os.makedirs(full, exist_ok=True); return "✅ ساخته شد."
+    def create_directory(a):
+        full = _safe(R, a.get("path"))
+        if not full: return "invalid path"
+        os.makedirs(full, exist_ok=True); return "created"
 
-              def glob_search(a):
-                  base = _safe(R, a.get("path", "")) or R
-                  files = glob.glob(os.path.join(base, a.get("pattern","")), recursive=True)
-                  return "\n".join(os.path.relpath(f, R) for f in files if os.path.isfile(f))[:6000] or "یافت نشد."
+    def glob_search(a):
+        base = _safe(R, a.get("path", "")) or R
+        files = glob.glob(os.path.join(base, a.get("pattern","")), recursive=True)
+        return "\\n".join(os.path.relpath(f, R) for f in files if os.path.isfile(f))[:6000] or "no matches"
 
-              def search_code(a):
-                  return _run(["grep","-rIn","-E",a.get("query",""),a.get("path",".")], 20, R)[:6000]
+    def search_code(a):
+        return _run(["grep","-rIn","-E",a.get("query",""),a.get("path",".")], 20, R)[:6000]
 
-              def find_symbol(a):
-                  return _run(["grep","-rIn","-E",rf"\b{re.escape(a.get('symbol',''))}\b",a.get("path",".")], 20, R)[:6000]
+    def find_symbol(a):
+        pat = "\\\\b" + re.escape(a.get("symbol","")) + "\\\\b"
+        return _run(["grep","-rIn","-E",pat,a.get("path",".")], 20, R)[:6000]
 
-              def git_log(a): return _run(["git","log",f"-{a.get('limit',10)}","--oneline"], 10, R)
-              def git_diff(a): return _run(["git","diff","HEAD~1","--",a.get("path","")], 10, R)[:5000]
-              def git_show(a): return _run(["git","show","--stat",a.get("commit","")], 10, R)[:5000]
-              def git_blame(a): return _run(["git","blame",a.get("path","")], 15, R)[:5000]
-              def git_status(a): return _run(["git","status"], 10, R)
-              def git_branch(a): return _run(["git","branch","-a"], 10, R)
+    def git_log(a): return _run(["git","log","-" + str(a.get("limit",10)),"--oneline"], 10, R)
+    def git_diff(a): return _run(["git","diff","HEAD~1","--",a.get("path","")], 10, R)[:5000]
+    def git_show(a): return _run(["git","show","--stat",a.get("commit","")], 10, R)[:5000]
+    def git_blame(a): return _run(["git","blame",a.get("path","")], 15, R)[:5000]
+    def git_status(a): return _run(["git","status"], 10, R)
+    def git_branch(a): return _run(["git","branch","-a"], 10, R)
 
-              def bash_execute(a): return _run(["sh","-c",a.get("command","")], a.get("timeout",60), R)
-              def python_execute(a): return _run(["python3","-c",a.get("code","")], a.get("timeout",60), R)
+    def bash_execute(a): return _run(["sh","-c",a.get("command","")], a.get("timeout",60), R)
+    def python_execute(a): return _run(["python3","-c",a.get("code","")], a.get("timeout",60), R)
 
-              def binary_strings(a): return _run(["strings","-n",str(a.get("min_len",4)),a.get("path","")], 20, R)[:6000]
-              def binary_symbols(a): return _run(["nm","-C","--defined-only",a.get("path","")], 20, R)[:6000]
-              def binary_headers(a): return _run(["readelf","-h",a.get("path","")], 20, R)[:6000]
-              def binary_sections(a): return _run(["readelf","-S",a.get("path","")], 20, R)[:6000]
-              def binary_disassemble(a): return _run(["objdump","-d",a.get("path","")], 30, R)[:6000]
-              def binary_hexdump(a): return _run(["xxd","-l",str(a.get("length",256)),a.get("path","")], 10, R)
+    def binary_strings(a): return _run(["strings","-n",str(a.get("min_len",4)),a.get("path","")], 20, R)[:6000]
+    def binary_symbols(a): return _run(["nm","-C","--defined-only",a.get("path","")], 20, R)[:6000]
+    def binary_headers(a): return _run(["readelf","-h",a.get("path","")], 20, R)[:6000]
+    def binary_sections(a): return _run(["readelf","-S",a.get("path","")], 20, R)[:6000]
+    def binary_disassemble(a): return _run(["objdump","-d",a.get("path","")], 30, R)[:6000]
+    def binary_hexdump(a): return _run(["xxd","-l",str(a.get("length",256)),a.get("path","")], 10, R)
 
-              def hash_file(a):
-                  full = _safe(R, a.get("path"))
-                  if not full: return "مسیر نامعتبر."
-                  h = hashlib.new(a.get("algo","sha256")); h.update(open(full,"rb").read())
-                  return h.hexdigest()
+    def hash_file(a):
+        full = _safe(R, a.get("path"))
+        if not full: return "invalid path"
+        h = hashlib.new(a.get("algo","sha256")); h.update(open(full,"rb").read())
+        return h.hexdigest()
 
-              def base64_encode(a): return base64.b64encode(a.get("text","").encode()).decode()
-              def base64_decode(a): return base64.b64decode(a.get("text","")).decode(errors="ignore")
+    def base64_encode(a): return base64.b64encode(a.get("text","").encode()).decode()
+    def base64_decode(a): return base64.b64decode(a.get("text","")).decode(errors="ignore")
 
-              def sqlite_query(a):
-                  full = _safe(R, a.get("path"))
-                  return _run(["sqlite3",full,a.get("query","")], 20, R)[:6000] if full else "مسیر نامعتبر."
+    def sqlite_query(a):
+        full = _safe(R, a.get("path"))
+        if not full: return "invalid path"
+        return _run(["sqlite3",full,a.get("query","")], 20, R)[:6000]
 
-              def list_skills(a): return "\n".join(f"- {k}" for k in reg.skills) or "هیچ skill یافت نشد."
-              def load_skill(a):
-                  return f"✅ Skill فعال شد: {a.get('name')}" if reg.activate_skill(a.get("name","")) else "Skill یافت نشد."
-              def unload_skill(a): reg.deactivate_skill(); return "✅ غیرفعال شد."
-              def list_plugins(a): return "\n".join(f"- {k}" for k in reg.plugins) or "هیچ plugin یافت نشد."
+    def list_skills(a): return "\\n".join("- " + k for k in reg.skills) or "no skills"
+    def load_skill(a):
+        return "skill activated: " + a.get("name","") if reg.activate_skill(a.get("name","")) else "skill not found"
+    def unload_skill(a): reg.deactivate_skill(); return "skill deactivated"
+    def list_plugins(a): return "\\n".join("- " + k for k in reg.plugins) or "no plugins"
 
-              defs = [
-                  ("list_files","لیست فایل‌ها.",{"path":{"type":"string"}},[],list_files,True),
-                  ("read_file","خواندن فایل.",{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},["path"],read_file,True),
-                  ("write_file","نوشتن فایل.",{"path":{"type":"string"},"content":{"type":"string"}},["path","content"],write_file,False),
-                  ("edit_file","ویرایش دقیق.",{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}},["path","old_string","new_string"],edit_file,True),
-                  ("append_file","الحاق.",{"path":{"type":"string"},"content":{"type":"string"}},["path","content"],append_file,False),
-                  ("delete_file","حذف.",{"path":{"type":"string"}},["path"],delete_file,False),
-                  ("move_file","انتقال.",{"src":{"type":"string"},"dst":{"type":"string"}},["src","dst"],move_file,False),
-                  ("copy_file","کپی.",{"src":{"type":"string"},"dst":{"type":"string"}},["src","dst"],copy_file,False),
-                  ("file_info","اطلاعات فایل.",{"path":{"type":"string"}},["path"],file_info,False),
-                  ("create_directory","ساخت دایرکتوری.",{"path":{"type":"string"}},["path"],create_directory,False),
-                  ("glob_search","جستجوی glob.",{"pattern":{"type":"string"},"path":{"type":"string"}},["pattern"],glob_search,True),
-                  ("search_code","جستجوی regex.",{"query":{"type":"string"},"path":{"type":"string"}},["query"],search_code,True),
-                  ("find_symbol","یافتن نماد.",{"symbol":{"type":"string"},"path":{"type":"string"}},["symbol"],find_symbol,False),
-                  ("git_log","تاریخچه گیت.",{"limit":{"type":"integer"}},["limit"],git_log,True),
-                  ("git_diff","دیف گیت.",{"path":{"type":"string"}},["path"],git_diff,False),
-                  ("git_show","نمایش کامیت.",{"commit":{"type":"string"}},["commit"],git_show,False),
-                  ("git_blame","blame.",{"path":{"type":"string"}},["path"],git_blame,False),
-                  ("git_status","وضعیت گیت.",{},[],git_status,False),
-                  ("git_branch","برنچ‌ها.",{},[],git_branch,False),
-                  ("bash_execute","اجرای shell.",{"command":{"type":"string"},"timeout":{"type":"integer"}},["command"],bash_execute,True),
-                  ("python_execute","اجرای Python.",{"code":{"type":"string"},"timeout":{"type":"integer"}},["code"],python_execute,True),
-                  ("binary_strings","رشته‌های باینری.",{"path":{"type":"string"},"min_len":{"type":"integer"}},["path"],binary_strings,False),
-                  ("binary_symbols","نمادهای باینری.",{"path":{"type":"string"}},["path"],binary_symbols,False),
-                  ("binary_headers","ELF headers.",{"path":{"type":"string"}},["path"],binary_headers,False),
-                  ("binary_sections","ELF sections.",{"path":{"type":"string"}},["path"],binary_sections,False),
-                  ("binary_disassemble","دیس‌اسمبل.",{"path":{"type":"string"}},["path"],binary_disassemble,False),
-                  ("binary_hexdump","هکس‌دامپ.",{"path":{"type":"string"},"length":{"type":"integer"}},["path"],binary_hexdump,False),
-                  ("hash_file","هش فایل.",{"path":{"type":"string"},"algo":{"type":"string"}},["path"],hash_file,False),
-                  ("base64_encode","Base64 encode.",{"text":{"type":"string"}},["text"],base64_encode,False),
-                  ("base64_decode","Base64 decode.",{"text":{"type":"string"}},["text"],base64_decode,False),
-                  ("sqlite_query","کوئری SQLite.",{"path":{"type":"string"},"query":{"type":"string"}},["path","query"],sqlite_query,False),
-                  ("list_skills","لیست Skills.",{},[],list_skills,True),
-                  ("load_skill","فعال‌سازی Skill.",{"name":{"type":"string"}},["name"],load_skill,True),
-                  ("unload_skill","غیرفعال‌سازی Skill.",{},[],unload_skill,False),
-                  ("list_plugins","لیست Plugins.",{},[],list_plugins,False),
-              ]
-              for name, desc, props, req, func, base in defs:
-                  schema = {"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":props,"required":req}}}
-                  reg.register_tool(schema, func, base=base)
-          PYEOF
+    defs = [
+        ("list_files","List directory contents.",{"path":{"type":"string"}},[],list_files,True),
+        ("read_file","Read file with line numbers.",{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},["path"],read_file,True),
+        ("write_file","Write file (overwrite).",{"path":{"type":"string"},"content":{"type":"string"}},["path","content"],write_file,False),
+        ("edit_file","Exact string replacement (must be unique).",{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"}},["path","old_string","new_string"],edit_file,True),
+        ("append_file","Append to file.",{"path":{"type":"string"},"content":{"type":"string"}},["path","content"],append_file,False),
+        ("delete_file","Delete file.",{"path":{"type":"string"}},["path"],delete_file,False),
+        ("move_file","Move/rename file.",{"src":{"type":"string"},"dst":{"type":"string"}},["src","dst"],move_file,False),
+        ("copy_file","Copy file.",{"src":{"type":"string"},"dst":{"type":"string"}},["src","dst"],copy_file,False),
+        ("file_info","File metadata.",{"path":{"type":"string"}},["path"],file_info,False),
+        ("create_directory","Create directory.",{"path":{"type":"string"}},["path"],create_directory,False),
+        ("glob_search","Find files by glob pattern.",{"pattern":{"type":"string"},"path":{"type":"string"}},["pattern"],glob_search,True),
+        ("search_code","Search code with regex.",{"query":{"type":"string"},"path":{"type":"string"}},["query"],search_code,True),
+        ("find_symbol","Find symbol references.",{"symbol":{"type":"string"},"path":{"type":"string"}},["symbol"],find_symbol,False),
+        ("git_log","Git commit history.",{"limit":{"type":"integer"}},["limit"],git_log,True),
+        ("git_diff","Git diff vs HEAD~1.",{"path":{"type":"string"}},["path"],git_diff,False),
+        ("git_show","Show commit.",{"commit":{"type":"string"}},["commit"],git_show,False),
+        ("git_blame","Git blame.",{"path":{"type":"string"}},["path"],git_blame,False),
+        ("git_status","Git status.",{},[],git_status,False),
+        ("git_branch","List branches.",{},[],git_branch,False),
+        ("bash_execute","Run shell in sandbox.",{"command":{"type":"string"},"timeout":{"type":"integer"}},["command"],bash_execute,True),
+        ("python_execute","Run Python in sandbox.",{"code":{"type":"string"},"timeout":{"type":"integer"}},["code"],python_execute,True),
+        ("binary_strings","Extract strings.",{"path":{"type":"string"},"min_len":{"type":"integer"}},["path"],binary_strings,False),
+        ("binary_symbols","List binary symbols.",{"path":{"type":"string"}},["path"],binary_symbols,False),
+        ("binary_headers","ELF headers.",{"path":{"type":"string"}},["path"],binary_headers,False),
+        ("binary_sections","ELF sections.",{"path":{"type":"string"}},["path"],binary_sections,False),
+        ("binary_disassemble","Disassemble.",{"path":{"type":"string"}},["path"],binary_disassemble,False),
+        ("binary_hexdump","Hex dump.",{"path":{"type":"string"},"length":{"type":"integer"}},["path"],binary_hexdump,False),
+        ("hash_file","File hash.",{"path":{"type":"string"},"algo":{"type":"string"}},["path"],hash_file,False),
+        ("base64_encode","Base64 encode.",{"text":{"type":"string"}},["text"],base64_encode,False),
+        ("base64_decode","Base64 decode.",{"text":{"type":"string"}},["text"],base64_decode,False),
+        ("sqlite_query","SQLite query.",{"path":{"type":"string"},"query":{"type":"string"}},["path","query"],sqlite_query,False),
+        ("list_skills","List available skills.",{},[],list_skills,True),
+        ("load_skill","Activate a skill.",{"name":{"type":"string"}},["name"],load_skill,True),
+        ("unload_skill","Deactivate current skill.",{},[],unload_skill,False),
+        ("list_plugins","List loaded plugins.",{},[],list_plugins,False),
+    ]
+    for name, desc, props, req, func, base in defs:
+        schema = {"type":"function","function":{"name":name,"description":desc,"parameters":{"type":"object","properties":props,"required":req}}}
+        reg.register_tool(schema, func, base=base)
+''')
 
-      - name: Generate skills and plugins
-        run: |
-          mkdir -p skills/binary-analysis skills/code-review skills/git-forensics
-          mkdir -p plugins/example-plugin/.claude-plugin
+          # ---- agent_server.py ----
+          open('agent_server.py', 'w', encoding='utf-8').write('''import json, os, re, subprocess
+import requests
+from flask import Flask, request, Response, stream_with_context, jsonify, send_from_directory
+from flask_cors import CORS
+from tool_registry import ToolRegistry
+from builtin_tools import register_builtin
 
-          cat > skills/binary-analysis/SKILL.md << 'EOF'
----
-name: binary-analysis
-description: تحلیل فایل‌های باینری ELF شامل رشته‌ها، نمادها، سکشن‌ها و دیس‌اسمبل
-allowed-tools: binary_strings, binary_symbols, binary_headers, binary_sections, binary_disassemble, binary_hexdump
----
-# دستورالعمل تحلیل باینری
-1. اول با binary_headers معماری را تشخیص بده.
-2. با binary_sections سکشن‌های مهم را پیدا کن.
-3. با binary_strings رشته‌های مشکوک را استخراج کن.
-4. با binary_symbols توابع را لیست کن.
-5. در پاسخ نهایی آفست‌های دقیق را ذکر کن.
-EOF
+app = Flask(__name__, static_folder='.', static_url_path='')
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET","POST","OPTIONS"]}})
 
-          cat > skills/code-review/SKILL.md << 'EOF'
----
-name: code-review
-description: بازبینی کد شامل یافتن TODO، محاسبه متریک و بررسی ساختار
-allowed-tools: search_code, find_symbol, glob_search, bash_execute
----
-# دستورالعمل بازبینی کد
-1. با glob_search فایل‌های اصلی را پیدا کن.
-2. با search_code به دنبال TODO/FIXME بگرد.
-3. ساختار توابع را با find_symbol بررسی کن.
-4. در پاسخ نهایی خطوط دقیق را ذکر کن.
-EOF
+LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
+REPO_ROOT = os.getcwd()
 
-          cat > skills/git-forensics/SKILL.md << 'EOF'
----
-name: git-forensics
-description: تحلیل تاریخچه گیت شامل blame، diff و کامیت‌های مشکوک
-allowed-tools: git_log, git_diff, git_show, git_blame
----
-# دستورالعمل تحلیل گیت
-1. با git_log تاریخچه را ببین.
-2. با git_blame نویسنده هر خط را پیدا کن.
-3. با git_diff تغییرات اخیر را بررسی کن.
-EOF
+reg = ToolRegistry(REPO_ROOT, max_native=16)
+register_builtin(reg, REPO_ROOT)
+reg.load_all_skills(os.path.join(REPO_ROOT, "skills"))
+reg.load_all_plugins(os.path.join(REPO_ROOT, "plugins"))
 
-          cat > plugins/example-plugin/.claude-plugin/plugin.json << 'EOF'
-{
-  "name": "example-plugin",
-  "description": "پلاگین نمونه برای افزودن ابزار سفارشی",
-  "version": "1.0.0"
-}
-EOF
+SYSTEM_PROMPT = """You are a Claude-level autonomous agent with 35+ tools organized into skills.
+Use list_skills() then load_skill(name) to activate specialized tools.
 
-          cat > plugins/example-plugin/plugin.py << 'EOF'
-def register(reg):
-    def hello(a):
-        return f"سلام {a.get('name','دنیا')}!"
-    schema = {"type":"function","function":{"name":"plugin_hello","description":"سلام از پلاگین.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":[]}}}
-    reg.register_tool(schema, hello, base=False)
-EOF
+RULES:
+1. NEVER ask for permission. Investigate autonomously.
+2. Start broad: list_files(), git_log(), glob_search().
+3. Load specialized skills if needed.
+4. Cite exact paths and line numbers.
+5. Respond in Persian when user uses Persian."""
 
-      - name: Generate agent_server.py
-        run: |
-          cat > agent_server.py << 'PYEOF'
-          import json, os, re, subprocess, resource
-          import requests
-          from flask import Flask, request, Response, stream_with_context, jsonify, send_from_directory
-          from flask_cors import CORS
-          from tool_registry import ToolRegistry
-          from builtin_tools import register_builtin
-
-          app = Flask(__name__, static_folder='.', static_url_path='')
-          CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "OPTIONS"]}})
-
-          LLAMA_URL = "http://127.0.0.1:8080/v1/chat/completions"
-          REPO_ROOT = os.getcwd()
-
-          reg = ToolRegistry(REPO_ROOT, max_native=16)
-          register_builtin(reg, REPO_ROOT)
-          reg.load_all_skills(os.path.join(REPO_ROOT, "skills"))
-          reg.load_all_plugins(os.path.join(REPO_ROOT, "plugins"))
-
-          SYSTEM_PROMPT = """You are a Claude-level autonomous agent with 69 tools organized into skills.
-          You have 16 native tool slots. Use list_skills() then load_skill(name) to activate specialized tools.
-
-          RULES:
-          1. NEVER ask for permission. Investigate autonomously.
-          2. Start broad: list_files(), git_log(), glob_search().
-          3. If you need specialized tools, load the relevant skill first.
-          4. Cite exact paths and line numbers.
-          5. Respond in Persian when user uses Persian."""
-
-          def _sandbox_prefix():
-              if subprocess.run(["which","bwrap"], capture_output=True).returncode != 0: return None
-              try:
-                  test = subprocess.run(["bwrap","--ro-bind","/","/","--","true"], capture_output=True, timeout=5)
-                  if test.returncode != 0: return None
-              except: return None
-              return ["bwrap","--unshare-all","--die-with-parent",
+def _sandbox_prefix():
+    try:
+        if subprocess.run(["which","bwrap"], capture_output=True).returncode != 0: return None
+        test = subprocess.run(["bwrap","--ro-bind","/","/","--","true"], capture_output=True, timeout=5)
+        if test.returncode != 0: return None
+    except: return None
+    return ["bwrap","--unshare-all","--die-with-parent",
             "--ro-bind","/usr","/usr","--ro-bind","/lib","/lib",
             "--ro-bind","/lib64","/lib64","--ro-bind","/bin","/bin",
             "--proc","/proc","--dev","/dev",
             "--bind",REPO_ROOT,REPO_ROOT,"--chdir",REPO_ROOT]
 
-          # ✅ روت اصلی برای جلوگیری از 404
-          @app.route("/")
-          @app.route("/index.html")
-          def index():
-              return send_from_directory(REPO_ROOT, "index.html")
+@app.route("/")
+@app.route("/index.html")
+def index():
+    try:
+        return send_from_directory(REPO_ROOT, "index.html")
+    except:
+        return jsonify({"info":"No index.html found. Use POST /v1/chat/completions"}), 200
 
-          @app.route("/health", methods=["GET"])
-          def health():
-              return jsonify({"status":"ok","tools":len(reg.tools),"skills":list(reg.skills),"plugins":list(reg.plugins),"active_skill":reg.active_skill,"native_slots":reg.max_native,"sandbox":bool(_sandbox_prefix())})
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status":"ok","tools":len(reg.tools),"skills":list(reg.skills),"plugins":list(reg.plugins),"active_skill":reg.active_skill,"native_slots":reg.max_native,"sandbox":bool(_sandbox_prefix())})
 
-          @app.route("/v1/chat/completions", methods=["GET", "POST", "OPTIONS"])
-          def proxy_chat():
-              if request.method == "OPTIONS":
-                  return ("", 204)
-              if request.method == "GET":
-                  return jsonify({"info":"This endpoint expects POST with JSON body.","usage":"POST /v1/chat/completions"}), 200
+@app.route("/v1/chat/completions", methods=["GET", "POST", "OPTIONS"])
+def proxy_chat():
+    if request.method == "OPTIONS":
+        return ("", 204)
+    if request.method == "GET":
+        return jsonify({"info":"POST /v1/chat/completions with JSON body"}), 200
 
-              data = request.json or {}
-              messages = data.get("messages", [])
-              if not any(m.get("role") == "system" for m in messages):
-                  messages.insert(0, {"role":"system","content":SYSTEM_PROMPT})
+    data = request.json or {}
+    messages = data.get("messages", [])
+    if not any(m.get("role") == "system" for m in messages):
+        messages.insert(0, {"role":"system","content":SYSTEM_PROMPT})
 
-              def sse(o): return f"data: {json.dumps(o, ensure_ascii=False)}\n\n"
+    def sse(o):
+        return "data: " + json.dumps(o, ensure_ascii=False) + "\\n\\n"
 
-              def generate():
-                  try:
+    def generate():
+        try:
             for _ in range(15):
                 schemas = reg.get_active_schemas()
                 skill_p = reg.get_skill_prompt()
@@ -430,14 +374,16 @@ EOF
                 r.raise_for_status()
                 msg = r.json()["choices"][0]["message"]
                 raw = msg.get("content","") or ""
-                th = re.search(r'\[THINK\](.*?)\[/THINK\]', raw, re.DOTALL)
-                if th: yield sse({"choices":[{"delta":{"reasoning_content": th.group(1).strip()}}]})
+                th = re.search(r'\\[THINK\\](.*?)\\[/THINK\\]', raw, re.DOTALL)
+                if th:
+                    yield sse({"choices":[{"delta":{"reasoning_content": th.group(1).strip()}}]})
                 tcs = msg.get("tool_calls")
                 if not tcs:
-                    final = re.sub(r'\[THINK\].*?\[/THINK\]', '', raw, flags=re.DOTALL).strip()
-                    if final: yield sse({"choices":[{"delta":{"content":final}}]})
+                    final = re.sub(r'\\[THINK\\].*?\\[/THINK\\]', '', raw, flags=re.DOTALL).strip()
+                    if final:
+                        yield sse({"choices":[{"delta":{"content":final}}]})
                     yield sse({"choices":[{"delta":{},"finish_reason":"stop"}]})
-                    yield "data: [DONE]\n\n"
+                    yield "data: [DONE]\\n\\n"
                     return
                 messages.append({"role":"assistant","content":raw,"tool_calls":tcs})
                 for tc in tcs:
@@ -447,21 +393,97 @@ EOF
                     yield sse({"choices":[{"delta":{"tool_call":{"name":fn,"arguments":args}}}]})
                     out = reg.execute(fn, args)
                     messages.append({"role":"tool","tool_call_id":tc["id"],"content":out[:10000]})
-            yield sse({"choices":[{"delta":{"content":"⚠️ حداکثر ۱۵ مرحله."}}]})
+            yield sse({"choices":[{"delta":{"content":"max 15 steps reached."}}]})
             yield sse({"choices":[{"delta":{},"finish_reason":"stop"}]})
-            yield "data: [DONE]\n\n"
-                  except Exception as e:
-            yield sse({"choices":[{"delta":{"content":f"❌ خطا: {e}"}}]})
-            yield "data: [DONE]\n\n"
+            yield "data: [DONE]\\n\\n"
+        except Exception as e:
+            yield sse({"choices":[{"delta":{"content":"error: " + str(e)}}]})
+            yield "data: [DONE]\\n\\n"
 
-              return Response(stream_with_context(generate()), mimetype="text/event-stream",
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
                     headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
 
-          if __name__ == "__main__":
-              app.run(host="0.0.0.0", port=5000, threaded=True)
-          PYEOF
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, threaded=True)
+''')
 
-                # ==================== دانلود مدل و llama.cpp ====================
+          # ---- Skills & Plugin ----
+          os.makedirs('skills/binary-analysis', exist_ok=True)
+          os.makedirs('skills/code-review', exist_ok=True)
+          os.makedirs('skills/git-forensics', exist_ok=True)
+          os.makedirs('plugins/example-plugin/.claude-plugin', exist_ok=True)
+
+          open('skills/binary-analysis/SKILL.md', 'w', encoding='utf-8').write('''---
+name: binary-analysis
+description: Binary analysis for ELF/PE files - strings, symbols, sections, disassembly
+allowed-tools: binary_strings, binary_symbols, binary_headers, binary_sections, binary_disassemble, binary_hexdump
+---
+
+# Binary Analysis Instructions
+
+1. Use binary_headers to identify architecture.
+2. Use binary_sections to find important sections.
+3. Use binary_strings to extract suspicious strings.
+4. Use binary_symbols to list functions.
+5. In final answer, cite exact offsets.
+''')
+
+          open('skills/code-review/SKILL.md', 'w', encoding='utf-8').write('''---
+name: code-review
+description: Code review - find TODOs, compute metrics, inspect structure
+allowed-tools: search_code, find_symbol, glob_search, bash_execute
+---
+
+# Code Review Instructions
+
+1. Use glob_search to find main files.
+2. Use search_code to find TODO/FIXME.
+3. Use find_symbol to inspect function structure.
+4. In final answer, cite exact lines.
+''')
+
+          open('skills/git-forensics/SKILL.md', 'w', encoding='utf-8').write('''---
+name: git-forensics
+description: Git forensics - blame, diff, suspicious commits
+allowed-tools: git_log, git_diff, git_show, git_blame
+---
+
+# Git Forensics Instructions
+
+1. Use git_log to see history.
+2. Use git_blame to find line authors.
+3. Use git_diff to check recent changes.
+''')
+
+          open('plugins/example-plugin/.claude-plugin/plugin.json', 'w', encoding='utf-8').write('''{
+  "name": "example-plugin",
+  "description": "Sample plugin for adding custom tools",
+  "version": "1.0.0"
+}
+''')
+
+          open('plugins/example-plugin/plugin.py', 'w', encoding='utf-8').write('''def register(reg):
+    def hello(a):
+        return "hello " + a.get("name", "world")
+    schema = {"type":"function","function":{"name":"plugin_hello","description":"Say hello.","parameters":{"type":"object","properties":{"name":{"type":"string"}},"required":[]}}}
+    reg.register_tool(schema, hello, base=False)
+''')
+
+          print("All files written successfully.")
+
+      - name: Verify Python syntax
+        run: |
+          echo "--- Checking tool_registry.py ---"
+          python -m py_compile tool_registry.py && echo "OK"
+          echo "--- Checking builtin_tools.py ---"
+          python -m py_compile builtin_tools.py && echo "OK"
+          echo "--- Checking agent_server.py ---"
+          python -m py_compile agent_server.py && echo "OK"
+          echo "--- Listing files ---"
+          ls -la
+          ls -la skills/*/
+          ls -la plugins/example-plugin/.claude-plugin/
+
       - name: Download Main Model (Ministral 14B Reasoning Q4_K_M)
         run: hf download mistralai/Ministral-3-14B-Reasoning-2512-GGUF --include "*Q4_K_M.gguf" --local-dir ./model
 
@@ -470,10 +492,12 @@ EOF
           wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12391/llama-b12391-bin-ubuntu-x64.tar.gz
           mkdir -p llama-bin
           tar -xzf llama-b12391-bin-ubuntu-x64.tar.gz -C llama-bin --strip-components=1
+          ls -la llama-bin/llama-server
 
       - name: Start llama-server
         run: |
           MAIN=$(find ./model -name "*.gguf" | head -n1)
+          echo "Main model: $MAIN"
           nohup ./llama-bin/llama-server \
             -m "$MAIN" \
             --host 127.0.0.1 --port 8080 \
@@ -481,38 +505,44 @@ EOF
             --jinja --reasoning-format auto \
             -t 4 -tb 4 --parallel 1 \
             > llama.log 2>&1 &
-          echo "⏳ Waiting..."
+          echo "waiting for llama-server..."
           for i in $(seq 1 120); do
-            if curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then echo "✅ Up after $((i*5))s"; break; fi
+            if curl -s http://127.0.0.1:8080/health >/dev/null 2>&1; then echo "ready after $((i*5))s"; break; fi
             sleep 5
           done
-          if ! curl -s http://127.0.0.1:8080/health >/dev/null; then tail -n 50 llama.log; exit 1; fi
-          tail -n 10 llama.log
+          if ! curl -s http://127.0.0.1:8080/health >/dev/null; then
+            echo "llama-server failed"; tail -n 100 llama.log; exit 1
+          fi
+          tail -n 20 llama.log
 
       - name: Start Flask with waitress
         run: |
           nohup python -c "from waitress import serve; from agent_server import app; serve(app, host='0.0.0.0', port=5000, threads=8)" > agent.log 2>&1 &
-          sleep 5
-          echo "--- Testing Flask locally ---"
-          curl -sf http://127.0.0.1:5000/health | tee /dev/stderr
-          curl -sf -o /dev/null -w "GET / => %{http_code}\n" http://127.0.0.1:5000/
-          curl -sf -o /dev/null -w "POST /v1/chat/completions => %{http_code}\n" -X POST http://127.0.0.1:5000/v1/chat/completions -H "Content-Type: application/json" -d '{"messages":[{"role":"user","content":"test"}]}' || echo "⚠️ POST test failed (llama not ready yet?)"
-          echo " ✅ Flask ready"
+          sleep 6
+          echo "--- Local tests ---"
+          curl -s http://127.0.0.1:5000/health && echo ""
+          curl -s -o /dev/null -w "GET / => %{http_code}\n" http://127.0.0.1:5000/
+          curl -s -o /dev/null -w "POST /v1/chat/completions => %{http_code}\n" -X POST http://127.0.0.1:5000/v1/chat/completions -H "Content-Type: application/json" -d '{"messages":[{"role":"user","content":"hi"}]}' || echo "POST test failed (check agent.log)"
+          echo "--- If health returned tools count, everything is fine ---"
+          if ! curl -s http://127.0.0.1:5000/health | grep -q '"status":"ok"'; then tail -n 50 agent.log; exit 1; fi
 
       - name: Expose via Cloudflare Tunnel
         run: |
-          printf '' > /tmp/cloudflared-empty.yml
+          printf '' > /tmp/cf-empty.yml
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O cloudflared
           chmod +x cloudflared
-          nohup ./cloudflared --config /tmp/cloudflared-empty.yml tunnel --protocol http2 --url http://localhost:5000 --no-autoupdate > tunnel.log 2>&1 &
-          sleep 12
+          nohup ./cloudflared --config /tmp/cf-empty.yml tunnel --protocol http2 --url http://localhost:5000 --no-autoupdate > tunnel.log 2>&1 &
+          sleep 15
           URL=$(grep -oE 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' tunnel.log | head -n1)
-          if [ -z "$URL" ]; then cat tunnel.log; exit 1; fi
-          echo "🌐 TUNNEL URL: $URL"
+          if [ -z "$URL" ]; then echo "tunnel URL not found"; cat tunnel.log; exit 1; fi
+          echo "TUNNEL URL: $URL"
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
       - name: Keep alive
         run: |
-          echo "🚀 API: ${{ env.TUNNEL_URL }}"
-          echo "📋 Health: ${{ env.TUNNEL_URL }}/health"
+          echo "======================================"
+          echo "API Endpoint: ${{ env.TUNNEL_URL }}"
+          echo "Health check: ${{ env.TUNNEL_URL }}/health"
+          echo "Chat:         ${{ env.TUNNEL_URL }}/v1/chat/completions"
+          echo "======================================"
           sleep 3600
