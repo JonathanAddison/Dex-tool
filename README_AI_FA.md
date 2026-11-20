@@ -54,3 +54,9 @@
 - گزارش تحلیل سورس با کلید commit cache می‌شود تا تحلیل ایستا در هر یک از هفت دور بی‌دلیل تکرار نشود.
 
 **محدودیت مهم:** این sandbox لایهٔ ایزوله‌سازی عملی برای اجرای کد غیرقابل‌اعتماد در GitHub-hosted runner است، نه تضمین امنیتی مطلق در برابر آسیب‌پذیری‌های kernel/Docker. از self-hosted runner حساس یا runner دارای credentialهای ارزشمند استفاده نکن. هیچ Secret را به کانتینر mount نکن. فایل‌های حساس رایج، `.env`ها و symlinkها از snapshot و کپی سندباکس حذف می‌شوند.
+
+## اصلاح runtime مربوط به llama.cpp (نسخهٔ رفع خطای shared library)
+
+در workflow، به‌جای کپی‌کردن تنها فایل `llama-completion`، کل آرشیو release در `llama.cpp/runtime/` نگهداری می‌شود تا کتابخانه‌های `.so` همراه آن باقی بمانند. پس از restore از cache یا دانلود تازه، اسکریپت `scripts/prepare_llama_runtime.sh` مسیر executable و پوشه‌های کتابخانه را پیدا می‌کند، `LD_LIBRARY_PATH` و `LLAMA_BIN` را تنظیم می‌کند، با `ldd` وابستگی‌های unresolved را بررسی می‌کند و اجرای `--version` را بدون مخفی‌کردن خطا اعتبارسنجی می‌کند. کلید cache به v3 تغییر کرده تا cache قدیمی که فقط executable را داشت استفاده نشود.
+
+این اصلاح در محیط محلی بدون فایل runtime واقعی llama.cpp فقط از نظر ساختار workflow، syntax و تست‌های واحد بررسی شده است؛ تأیید نهایی وابسته به اجرای workflow روی GitHub Actions و دریافت آرشیو release است.
