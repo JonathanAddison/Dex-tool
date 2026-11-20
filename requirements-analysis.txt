@@ -1,0 +1,7 @@
+# Local-only analysis dependencies. No hosted AI/API keys are used.
+ruff>=0.11,<1
+bandit>=1.8,<2
+pytest>=8,<10
+androguard>=4.1,<5
+lief>=0.15,<1
+zizmor>=1.7,<2
