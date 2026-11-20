@@ -1,160 +1,310 @@
-# .github/workflows/peer-round.yml
 name: Peer Consensus Round
-
 on:
   workflow_call:
     inputs:
-      task_prompt:
-        required: true
-        type: string
-      round_number:
-        required: true
-        type: number
-      qwen_prev:
-        required: false
-        type: string
-        default: ""
-      glm_prev:
-        required: false
-        type: string
-        default: ""
+      task_prompt: { required: true, type: string }
+      round_number: { required: true, type: number }
+      qwen_prev: { required: false, type: string, default: '' }
+      glm_prev: { required: false, type: string, default: '' }
     outputs:
       qwen_output:
         value: ${{ jobs.run-qwen.outputs.agent_output }}
       glm_output:
         value: ${{ jobs.run-glm.outputs.agent_output }}
-      qwen_consensus:
-        value: ${{ jobs.run-qwen.outputs.consensus_flag }}
-      glm_consensus:
-        value: ${{ jobs.run-glm.outputs.consensus_flag }}
+      consensus:
+        value: ${{ jobs.judge.outputs.consensus }}
+
+permissions:
+  contents: read
 
 jobs:
-  # ============ Qwen Job (Runner اختصاصی 4C/16GB) ============
   run-qwen:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     outputs:
-      agent_output: ${{ steps.run.outputs.agent_output }}
-      consensus_flag: ${{ steps.run.outputs.consensus_flag }}
+      agent_output: ${{ steps.result.outputs.agent_output }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore Qwen model + binary
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-analysis.txt
+      - name: Setup Node for Frida GumJS syntax checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Restore source-analysis report cache
+        id: analysis-cache
         uses: actions/cache@v4
+        with:
+          path: |
+            .agent-work/tool_inventory.json
+            .agent-work/static_checks.json
+            .agent-work/android_native_audit.json
+            .agent-work/binary_artifact_audit.json
+          key: dex-source-analysis-v3-${{ github.sha }}-${{ runner.os }}
+      - name: Install local static-analysis toolchain
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        run: python scripts/bootstrap_local_tools.py --install
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build isolated code-execution sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./sandbox
+          file: ./sandbox/Dockerfile
+          tags: dex-agent-sandbox:latest
+          load: true
+          cache-from: type=gha,scope=dex-sandbox-qwen
+          cache-to: type=gha,mode=max,scope=dex-sandbox-qwen
+      - name: Restore Qwen model and llama.cpp binary
         id: cache
+        uses: actions/cache@v4
         with:
           path: |
             models/qwen.gguf
-            llama.cpp/
-          key: Linux-qwen-v4
-
-      - name: Download Qwen + prebuilt llama.cpp (if cache miss)
+            llama.cpp/build/bin/llama-completion
+          key: dex-qwen-q4km-llama-b12230-v2-${{ runner.os }}
+      - name: Download Qwen and llama.cpp when cache misses
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p models llama.cpp/build/bin
-          curl -L --retry 3 -o models/qwen.gguf \
-            "https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf"
-          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
-          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
-          rm llama-b12230-bin-ubuntu-x64.tar.gz
-          chmod +x llama.cpp/build/bin/llama-completion
-
-      - name: Gather ALL project source code (no byte cap)
+          set -euo pipefail
+          mkdir -p models llama.cpp/build/bin /tmp/llama-dist
+          curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
+            -o models/qwen.gguf \
+            'https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf'
+          curl -fL --retry 5 --retry-all-errors \
+            -o /tmp/llama.tar.gz \
+            'https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz'
+          tar -xzf /tmp/llama.tar.gz -C /tmp/llama-dist
+          BIN="$(find /tmp/llama-dist -type f -name llama-completion -print -quit)"
+          test -n "$BIN"
+          install -m 0755 "$BIN" llama.cpp/build/bin/llama-completion
+          "$PWD/llama.cpp/build/bin/llama-completion" --version || true
+      - name: Discover installed local analysis tools
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        run: python scripts/discover_tools.py
+      - name: Build complete source snapshot and chunks
+        run: python scripts/gather_code.py --out .agent-work/source
+      - name: Run available static analysis tools
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        env:
+          RUN_PROJECT_TESTS: '0'
         run: |
-          python scripts/gather_code.py > /tmp/code_context.txt
-          echo "Gathered: $(wc -c < /tmp/code_context.txt) bytes"
-
-      - name: Run Qwen
+          python scripts/run_static_checks.py
+          python scripts/android_native_audit.py
+          python scripts/binary_artifact_audit.py
+      - name: Select shared review candidate
+        if: inputs.round_number > 1
+        env:
+          QWEN_PREV: ${{ inputs.qwen_prev }}
+          GLM_PREV: ${{ inputs.glm_prev }}
+        run: |
+          python scripts/select_candidate.py > /tmp/shared_candidate.json
+          cat /tmp/shared_candidate.json
+      - name: Run Qwen agent
         id: run
         env:
           MODEL_PATH: models/qwen.gguf
+          MODEL_CONTEXT: ${{ vars.QWEN_CONTEXT || '32768' }}
           AGENT_NAME: qwen
           ROUND: ${{ inputs.round_number }}
           TASK_PROMPT: ${{ inputs.task_prompt }}
           MY_LAST_OUTPUT: ${{ inputs.qwen_prev }}
           PEER_LAST_OUTPUT: ${{ inputs.glm_prev }}
           OUTPUT_FILE: results/qwen_round${{ inputs.round_number }}.json
-          CODE_CONTEXT_FILE: /tmp/code_context.txt
+          AGENT_WORK_DIR: .agent-work/qwen/round${{ inputs.round_number }}
         run: |
-          python scripts/peer_consensus.py || true
-
-          if [ ! -f "$OUTPUT_FILE" ]; then
-            echo "❌ OUTPUT_FILE ساخته نشد: $OUTPUT_FILE" >&2
-            exit 1
+          set -euo pipefail
+          if [ "${{ inputs.round_number }}" -gt 1 ]; then
+            export SHARED_CANDIDATE="$(cat /tmp/shared_candidate.json)"
           fi
-
-          {
-            echo "agent_output<<OUTPUT_EOF"
-            jq -r '.output // ""' "$OUTPUT_FILE"
-            echo "OUTPUT_EOF"
-            echo "consensus_flag=$(jq -r '.consensus // false' "$OUTPUT_FILE")"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/upload-artifact@v4
+          python scripts/peer_consensus.py
+      - name: Export compact Qwen result
+        id: result
+        if: success()
+        run: |
+          VALUE="$(cat .agent-work/qwen/round${{ inputs.round_number }}/transport.json)"
+          echo "agent_output<<DEX_QWEN_EOF" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$VALUE" >> "$GITHUB_OUTPUT"
+          echo "DEX_QWEN_EOF" >> "$GITHUB_OUTPUT"
+      - name: Upload complete Qwen transcript and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: round${{ inputs.round_number }}-qwen
-          path: results/
+          name: dex-round${{ inputs.round_number }}-qwen
+          path: |
+            results/qwen_round${{ inputs.round_number }}.json
+            .agent-work/qwen/round${{ inputs.round_number }}/
+            .agent-work/source/
+            .agent-work/tool_inventory.json
+            .agent-work/static_checks.json
+            .agent-work/android_native_audit.json
+            .agent-work/binary_artifact_audit.json
+          if-no-files-found: warn
+          retention-days: 30
 
-  # ============ GLM Job (Runner اختصاصی 4C/16GB) ============
   run-glm:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     outputs:
-      agent_output: ${{ steps.run.outputs.agent_output }}
-      consensus_flag: ${{ steps.run.outputs.consensus_flag }}
+      agent_output: ${{ steps.result.outputs.agent_output }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore GLM model + binary
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-analysis.txt
+      - name: Setup Node for Frida GumJS syntax checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Restore source-analysis report cache
+        id: analysis-cache
         uses: actions/cache@v4
+        with:
+          path: |
+            .agent-work/tool_inventory.json
+            .agent-work/static_checks.json
+            .agent-work/android_native_audit.json
+            .agent-work/binary_artifact_audit.json
+          key: dex-source-analysis-v3-${{ github.sha }}-${{ runner.os }}
+      - name: Install local static-analysis toolchain
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        run: python scripts/bootstrap_local_tools.py --install
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Build isolated code-execution sandbox image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./sandbox
+          file: ./sandbox/Dockerfile
+          tags: dex-agent-sandbox:latest
+          load: true
+          cache-from: type=gha,scope=dex-sandbox-glm
+          cache-to: type=gha,mode=max,scope=dex-sandbox-glm
+      - name: Restore GLM model and llama.cpp binary
         id: cache
+        uses: actions/cache@v4
         with:
           path: |
             models/glm.gguf
-            llama.cpp/
-          key: Linux-glm-v4
-
-      - name: Download GLM + prebuilt llama.cpp (if cache miss)
+            llama.cpp/build/bin/llama-completion
+          key: dex-glm-q3km-llama-b12230-v2-${{ runner.os }}
+      - name: Download GLM and llama.cpp when cache misses
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
+          set -euo pipefail
           mkdir -p models llama.cpp/build/bin
-          curl -L --retry 3 -o models/glm.gguf \
-            "https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q3_K_M.gguf"
-          wget -q https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz
-          tar -xzf llama-b12230-bin-ubuntu-x64.tar.gz -C llama.cpp/build/bin --strip-components=1
-          rm llama-b12230-bin-ubuntu-x64.tar.gz
-          chmod +x llama.cpp/build/bin/llama-completion
-
-      - name: Gather ALL project source code (no byte cap)
+          curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
+            -o models/glm.gguf \
+            'https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q3_K_M.gguf'
+          curl -fL --retry 5 --retry-all-errors \
+            -o /tmp/llama.tar.gz \
+            'https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz'
+          mkdir -p /tmp/llama-dist
+          tar -xzf /tmp/llama.tar.gz -C /tmp/llama-dist
+          BIN="$(find /tmp/llama-dist -type f -name llama-completion -print -quit)"
+          test -n "$BIN"
+          install -m 0755 "$BIN" llama.cpp/build/bin/llama-completion
+      - name: Discover installed local analysis tools
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        run: python scripts/discover_tools.py
+      - name: Build complete source snapshot and chunks
+        run: python scripts/gather_code.py --out .agent-work/source
+      - name: Run available static analysis tools
+        if: steps.analysis-cache.outputs.cache-hit != 'true'
+        env:
+          RUN_PROJECT_TESTS: '0'
         run: |
-          python scripts/gather_code.py > /tmp/code_context.txt
-          echo "Gathered: $(wc -c < /tmp/code_context.txt) bytes"
-
-      - name: Run GLM
+          python scripts/run_static_checks.py
+          python scripts/android_native_audit.py
+          python scripts/binary_artifact_audit.py
+      - name: Select shared review candidate
+        if: inputs.round_number > 1
+        env:
+          QWEN_PREV: ${{ inputs.qwen_prev }}
+          GLM_PREV: ${{ inputs.glm_prev }}
+        run: |
+          python scripts/select_candidate.py > /tmp/shared_candidate.json
+          cat /tmp/shared_candidate.json
+      - name: Run GLM agent
         id: run
         env:
           MODEL_PATH: models/glm.gguf
+          MODEL_CONTEXT: ${{ vars.GLM_CONTEXT || '32768' }}
           AGENT_NAME: glm
           ROUND: ${{ inputs.round_number }}
           TASK_PROMPT: ${{ inputs.task_prompt }}
           MY_LAST_OUTPUT: ${{ inputs.glm_prev }}
           PEER_LAST_OUTPUT: ${{ inputs.qwen_prev }}
           OUTPUT_FILE: results/glm_round${{ inputs.round_number }}.json
-          CODE_CONTEXT_FILE: /tmp/code_context.txt
+          AGENT_WORK_DIR: .agent-work/glm/round${{ inputs.round_number }}
         run: |
-          python scripts/peer_consensus.py || true
-
-          if [ ! -f "$OUTPUT_FILE" ]; then
-            echo "❌ OUTPUT_FILE ساخته نشد: $OUTPUT_FILE" >&2
-            exit 1
+          set -euo pipefail
+          if [ "${{ inputs.round_number }}" -gt 1 ]; then
+            export SHARED_CANDIDATE="$(cat /tmp/shared_candidate.json)"
           fi
-
-          {
-            echo "agent_output<<OUTPUT_EOF"
-            jq -r '.output // ""' "$OUTPUT_FILE"
-            echo "OUTPUT_EOF"
-            echo "consensus_flag=$(jq -r '.consensus // false' "$OUTPUT_FILE")"
-          } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/upload-artifact@v4
+          python scripts/peer_consensus.py
+      - name: Export compact GLM result
+        id: result
+        if: success()
+        run: |
+          VALUE="$(cat .agent-work/glm/round${{ inputs.round_number }}/transport.json)"
+          echo "agent_output<<DEX_GLM_EOF" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$VALUE" >> "$GITHUB_OUTPUT"
+          echo "DEX_GLM_EOF" >> "$GITHUB_OUTPUT"
+      - name: Upload complete GLM transcript and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: round${{ inputs.round_number }}-glm
-          path: results/
+          name: dex-round${{ inputs.round_number }}-glm
+          path: |
+            results/glm_round${{ inputs.round_number }}.json
+            .agent-work/glm/round${{ inputs.round_number }}/
+            .agent-work/source/
+            .agent-work/tool_inventory.json
+            .agent-work/static_checks.json
+            .agent-work/android_native_audit.json
+            .agent-work/binary_artifact_audit.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  judge:
+    needs: [run-qwen, run-glm]
+    runs-on: ubuntu-latest
+    outputs:
+      consensus: ${{ steps.judge.outputs.consensus }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate two-agent consensus
+        id: judge
+        env:
+          QWEN_RESULT: ${{ needs.run-qwen.outputs.agent_output }}
+          GLM_RESULT: ${{ needs.run-glm.outputs.agent_output }}
+          QWEN_PREV: ${{ inputs.qwen_prev }}
+          GLM_PREV: ${{ inputs.glm_prev }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.round_number }}" -gt 1 ]; then
+            python scripts/select_candidate.py > /tmp/shared_candidate.json
+            export SHARED_CANDIDATE="$(cat /tmp/shared_candidate.json)"
+          else
+            export SHARED_CANDIDATE='{}'
+          fi
+          python scripts/validate_consensus.py | tee consensus.json
+          CONSENSUS="$(python -c 'import json;print(str(json.load(open("consensus.json"))["consensus"]).lower())')"
+          echo "consensus=$CONSENSUS" >> "$GITHUB_OUTPUT"
+      - name: Upload consensus decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dex-round${{ inputs.round_number }}-consensus
+          path: consensus.json
+          if-no-files-found: warn
+          retention-days: 30
