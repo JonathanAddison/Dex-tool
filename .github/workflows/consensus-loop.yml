@@ -1,79 +1,107 @@
-# .github/workflows/consensus-loop.yml
-name: Peer-to-Peer Consensus Loop (7 Rounds)
-
+name: Dex-tool - Dual Agent Evidence-Based Consensus (7 Rounds)
 on:
   workflow_dispatch:
     inputs:
       task_prompt:
-        description: 'The task for the agents'
+        description: 'Task for both independent agents'
         required: true
-        default: 'Find and fix the most critical bug in the Dex-tool project.'
+        type: string
+        default: 'Analyze the entire Dex-tool repository, independently identify the single most critical real bug, propose a minimal safe fix, then peer-review and converge on one evidence-backed patch.'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dex-dual-agent-consensus-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   round1:
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 1
-      qwen_prev: ""
-      glm_prev: ""
-
   round2:
     needs: round1
-    if: needs.round1.outputs.qwen_consensus != 'true' || needs.round1.outputs.glm_consensus != 'true'
+    if: needs.round1.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 2
       qwen_prev: ${{ needs.round1.outputs.qwen_output }}
       glm_prev: ${{ needs.round1.outputs.glm_output }}
-
   round3:
     needs: round2
-    if: needs.round2.outputs.qwen_consensus != 'true' || needs.round2.outputs.glm_consensus != 'true'
+    if: needs.round2.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 3
       qwen_prev: ${{ needs.round2.outputs.qwen_output }}
       glm_prev: ${{ needs.round2.outputs.glm_output }}
-
   round4:
     needs: round3
-    if: needs.round3.outputs.qwen_consensus != 'true' || needs.round3.outputs.glm_consensus != 'true'
+    if: needs.round3.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 4
       qwen_prev: ${{ needs.round3.outputs.qwen_output }}
       glm_prev: ${{ needs.round3.outputs.glm_output }}
-
   round5:
     needs: round4
-    if: needs.round4.outputs.qwen_consensus != 'true' || needs.round4.outputs.glm_consensus != 'true'
+    if: needs.round4.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 5
       qwen_prev: ${{ needs.round4.outputs.qwen_output }}
       glm_prev: ${{ needs.round4.outputs.glm_output }}
-
   round6:
     needs: round5
-    if: needs.round5.outputs.qwen_consensus != 'true' || needs.round5.outputs.glm_consensus != 'true'
+    if: needs.round5.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 6
       qwen_prev: ${{ needs.round5.outputs.qwen_output }}
       glm_prev: ${{ needs.round5.outputs.glm_output }}
-
   round7:
     needs: round6
-    if: needs.round6.outputs.qwen_consensus != 'true' || needs.round6.outputs.glm_consensus != 'true'
+    if: needs.round6.outputs.consensus != 'true'
     uses: ./.github/workflows/peer-round.yml
     with:
-      task_prompt: ${{ github.event.inputs.task_prompt }}
+      task_prompt: ${{ inputs.task_prompt }}
       round_number: 7
       qwen_prev: ${{ needs.round6.outputs.qwen_output }}
       glm_prev: ${{ needs.round6.outputs.glm_output }}
+
+  final-status:
+    if: always()
+    needs: [round1, round2, round3, round4, round5, round6, round7]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write run summary
+        env:
+          R1: ${{ needs.round1.outputs.consensus }}
+          R2: ${{ needs.round2.outputs.consensus }}
+          R3: ${{ needs.round3.outputs.consensus }}
+          R4: ${{ needs.round4.outputs.consensus }}
+          R5: ${{ needs.round5.outputs.consensus }}
+          R6: ${{ needs.round6.outputs.consensus }}
+          R7: ${{ needs.round7.outputs.consensus }}
+        run: |
+          python - <<'PY'
+          import os
+          rounds=[os.getenv(f'R{i}','') for i in range(1,8)]
+          reached=next((i for i,x in enumerate(rounds,1) if x=='true'),None)
+          completed=max((i for i,x in enumerate(rounds,1) if x in ('true','false')),default=0)
+          if reached:
+              msg=f'CONSENSUS REACHED in round {reached}. See dex-round{reached}-consensus artifact for the agreed patch and validation checks.'
+          elif completed:
+              msg=f'NO CONSENSUS after round {completed}. Review all agent transcripts and objections; no patch was auto-applied.'
+          else:
+              msg='The run did not produce a completed consensus decision. Inspect failed jobs and their diagnostic artifacts.'
+          print(msg)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write('# Dex-tool dual-agent review\n\n'+msg+'\n')
+          PY
