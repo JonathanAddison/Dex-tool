@@ -20,6 +20,22 @@ def run(name, cmd, timeout=300):
     if item['stderr']: print(item['stderr'],file=sys.stderr,flush=True)
     return item
 
+def summarize_results(results, suite):
+    passed=sum(x['status']=='passed' for x in results)
+    failed=sum(x['status']=='failed' for x in results)
+    timeouts=sum(x['status']=='timeout' for x in results)
+    skipped=sum(x['status']=='skipped' for x in results)
+    if failed or timeouts:
+        validation='failed'; exit_code=1
+    elif passed == 0:
+        validation='skipped'; exit_code=2
+    elif skipped:
+        validation='partial'; exit_code=0
+    else:
+        validation='passed'; exit_code=0
+    summary={'sandbox':'docker-network-none-readonly-rootfs','suite':suite,'validation':validation,'tests_executed':passed+failed+timeouts,'results':results,'passed':passed,'failed':failed,'timeouts':timeouts,'skipped':skipped}
+    return summary, exit_code
+
 def main():
     ap=argparse.ArgumentParser(); ap.add_argument('--suite',choices=['auto','native','python','cmake','node','go','rust','shell'],default='auto'); a=ap.parse_args()
     results=[]; suite=a.suite
@@ -62,7 +78,7 @@ def main():
         sh=[str(p.relative_to(ROOT)) for p in ROOT.rglob('*.sh') if '.git' not in p.parts]
         if sh: results.append(run('shellcheck',['shellcheck','-f','gcc',*sh],180))
     if not results: results.append({'suite':suite,'status':'skipped','reason':'No matching project/test manifest was found.'})
-    summary={'sandbox':'docker-network-none-readonly-rootfs','suite':suite,'results':results,'passed':sum(x['status']=='passed' for x in results),'failed':sum(x['status']=='failed' for x in results),'timeouts':sum(x['status']=='timeout' for x in results)}
+    summary, exit_code = summarize_results(results, suite)
     print('DEX_SANDBOX_RESULT='+json.dumps(summary,ensure_ascii=False),flush=True)
-    return 0 if all(x['status'] in ('passed','skipped') for x in results) else 1
+    return exit_code
 if __name__=='__main__': raise SystemExit(main())
