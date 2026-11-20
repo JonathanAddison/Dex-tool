@@ -64,24 +64,23 @@ jobs:
         with:
           path: |
             models/qwen.gguf
-            llama.cpp/build/bin/llama-completion
-          key: dex-qwen-q4km-llama-b12230-v2-${{ runner.os }}
+            llama.cpp/runtime/
+          key: dex-qwen-q4km-llama-b12230-v3-${{ runner.os }}
       - name: Download Qwen and llama.cpp when cache misses
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          mkdir -p models llama.cpp/build/bin /tmp/llama-dist
+          mkdir -p models llama.cpp/runtime
           curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
             -o models/qwen.gguf \
             'https://huggingface.co/DuoNeural/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf'
-          curl -fL --retry 5 --retry-all-errors \
+          curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
             -o /tmp/llama.tar.gz \
             'https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz'
-          tar -xzf /tmp/llama.tar.gz -C /tmp/llama-dist
-          BIN="$(find /tmp/llama-dist -type f -name llama-completion -print -quit)"
-          test -n "$BIN"
-          install -m 0755 "$BIN" llama.cpp/build/bin/llama-completion
-          "$PWD/llama.cpp/build/bin/llama-completion" --version || true
+          # Keep the complete release layout: llama-completion depends on sibling .so files.
+          tar -xzf /tmp/llama.tar.gz -C llama.cpp/runtime
+      - name: Locate llama.cpp executable and configure shared libraries
+        run: bash scripts/prepare_llama_runtime.sh llama.cpp/runtime
       - name: Discover installed local analysis tools
         if: steps.analysis-cache.outputs.cache-hit != 'true'
         run: python scripts/discover_tools.py
@@ -191,24 +190,23 @@ jobs:
         with:
           path: |
             models/glm.gguf
-            llama.cpp/build/bin/llama-completion
-          key: dex-glm-q3km-llama-b12230-v2-${{ runner.os }}
+            llama.cpp/runtime/
+          key: dex-glm-q3km-llama-b12230-v3-${{ runner.os }}
       - name: Download GLM and llama.cpp when cache misses
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          mkdir -p models llama.cpp/build/bin
+          mkdir -p models llama.cpp/runtime
           curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
             -o models/glm.gguf \
             'https://huggingface.co/axteam/GLM-4-9B-0414-GGUF/resolve/main/GLM-4-9B-0414-Q3_K_M.gguf'
-          curl -fL --retry 5 --retry-all-errors \
+          curl -fL --retry 5 --retry-all-errors --connect-timeout 30 \
             -o /tmp/llama.tar.gz \
             'https://github.com/ggml-org/llama.cpp/releases/download/b12230/llama-b12230-bin-ubuntu-x64.tar.gz'
-          mkdir -p /tmp/llama-dist
-          tar -xzf /tmp/llama.tar.gz -C /tmp/llama-dist
-          BIN="$(find /tmp/llama-dist -type f -name llama-completion -print -quit)"
-          test -n "$BIN"
-          install -m 0755 "$BIN" llama.cpp/build/bin/llama-completion
+          # Preserve all runtime libraries, not just the executable.
+          tar -xzf /tmp/llama.tar.gz -C llama.cpp/runtime
+      - name: Locate llama.cpp executable and configure shared libraries
+        run: bash scripts/prepare_llama_runtime.sh llama.cpp/runtime
       - name: Discover installed local analysis tools
         if: steps.analysis-cache.outputs.cache-hit != 'true'
         run: python scripts/discover_tools.py
