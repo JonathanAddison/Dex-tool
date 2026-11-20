@@ -32,4 +32,3 @@ def main():
         result=candidates[0]
     print(json.dumps(result,ensure_ascii=False,separators=(",",":")))
 if __name__=="__main__": main()
-s
